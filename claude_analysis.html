@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>V1.0 整车代码全景分析</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#161b22; --border:#30363d;
+    --fg:#e6edf3; --muted:#8b949e; --accent:#58a6ff; --warn:#f0883e; --ok:#3fb950;
+    --code-bg:#0d1117;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7}
+  .layout{display:flex;max-width:1400px;margin:0 auto}
+  nav.toc{position:sticky;top:0;height:100vh;width:260px;padding:24px 16px;border-right:1px solid var(--border);overflow-y:auto;background:var(--panel)}
+  nav.toc h2{font-size:14px;color:var(--muted);margin:0 0 12px;letter-spacing:1px}
+  nav.toc a{display:block;color:var(--fg);text-decoration:none;padding:8px 12px;border-radius:6px;font-size:14px;margin-bottom:4px;border-left:3px solid transparent}
+  nav.toc a:hover{background:#21262d;border-left-color:var(--accent)}
+  main{flex:1;padding:40px 48px;min-width:0}
+  h1{font-size:32px;border-bottom:1px solid var(--border);padding-bottom:16px;margin-top:0}
+  h2{font-size:24px;color:var(--accent);margin-top:48px;border-bottom:1px solid var(--border);padding-bottom:8px}
+  h3{font-size:18px;color:var(--warn);margin-top:28px}
+  code{background:var(--code-bg);padding:2px 6px;border-radius:4px;font-family:"JetBrains Mono",Consolas,monospace;font-size:0.92em;color:#79c0ff}
+  pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;font-size:13px;line-height:1.5}
+  pre code{background:transparent;padding:0;color:var(--fg)}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px;background:var(--panel);border-radius:8px;overflow:hidden}
+  th,td{border:1px solid var(--border);padding:10px 14px;vertical-align:top}
+  th{background:#21262d;color:var(--accent);text-align:left;font-weight:600}
+  tr:hover td{background:#1c2128}
+  ul,ol{padding-left:24px}
+  li{margin:6px 0}
+  strong{color:var(--ok)}
+  blockquote{border-left:4px solid var(--accent);background:var(--panel);padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0;color:var(--muted)}
+  .badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;background:#21262d;color:var(--accent);margin-right:6px;border:1px solid var(--border)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin:20px 0}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
+  .card h4{margin:0 0 8px;color:var(--accent);font-size:15px}
+  .card p{margin:0;font-size:13px;color:var(--muted);line-height:1.6}
+  hr{border:0;border-top:1px solid var(--border);margin:32px 0}
+  @media(max-width:900px){nav.toc{display:none}main{padding:20px}}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc">
+  <h2>目录</h2>
+  <a href="#overview">概述</a>
+  <a href="#sec1">一、模块功能综述</a>
+  <a href="#sec2">二、职责/逻辑/性能</a>
+  <a href="#sec3">三、系统架构</a>
+  <a href="#sec4">四、配合时序</a>
+  <a href="#sec5">五、保护机制</a>
+  <a href="#sec6">六、异常处理</a>
+  <a href="#sec7">七、优先级</a>
+  <a href="#sec8">八、信号板深层逻辑</a>
+</nav>
+<main>
+  <h1>整车代码全景分析 · V1.0</h1>
+  <p id="overview">
+    <span class="badge">STM32F103</span>
+    <span class="badge">FOC</span>
+    <span class="badge">UWB Follow</span>
+    <span class="badge">TOFSense Obstacle Avoidance</span>
+    <span class="badge">CAN 1Mbps</span>
+  </p>
+  <blockquote>
+    代码分两块 MCU：<strong>主控板（STM32F103RC，<code>Src/</code> + <code>Inc/</code>）</strong> 跑 FOC 双电机 + UWB 跟随；
+    <strong>信号板（STM32F103C8T6，<code>signal_board_c8t6/src/</code>）</strong> 跑蓝牙门控 + UWB 解析 + TOFSense 避障融合。
+    两板通过 <code>USART3</code> 串口以 <code>$FLW,d,a,x,y,s\r\n</code> 帧通信。
+  </blockquote>
+
+  <h2 id="sec1">一、模块功能综述</h2>
+  <h3>主控板（V1.0/Src）</h3>
+  <div class="grid">
+    <div class="card"><h4>main.c</h4><p>主状态机、主循环、电源/温度/电压/超时仲裁、命令融合到 PWM。</p></div>
+    <div class="card"><h4>bldc.c</h4><p>16 kHz DMA 中断里跑 FOC（调用 Simulink 生成代码），含相电流采样、过流斩波、霍尔读取、蜂鸣方波。</p></div>
+    <div class="card"><h4>BLDC_controller.*</h4><p>Matlab/Simulink 自动生成的 FOC 控制器（COM/SIN/FOC 三模式、转矩/速度/电压三模式）。</p></div>
+    <div class="card"><h4>setup.c</h4><p>HAL 外设初始化（TIM1/8 PWM、双 ADC 注入扫描、USART2/3 DMA+IDLE、I2C2、GPIO）。</p></div>
+    <div class="card"><h4>util.c</h4><p>输入抽象层、readCommand、低通/限速滤波、混控器、巡航/驻车/电制动/多击检测、DMA 环形缓冲、串口调试协议、poweroff。</p></div>
+    <div class="card"><h4>control.c</h4><p>PPM 解码（EXTI+TIM2）、PWM 双通道解码、Nunchuk I²C 状态机。</p></div>
+    <div class="card"><h4>comms.c</h4><p>调试串口的命令解析器（参数读写、watch list、错误码）。</p></div>
+    <div class="card"><h4>eeprom.c</h4><p>FLASH 模拟 EEPROM，持久化用户/控制参数。</p></div>
+    <div class="card"><h4>flw_follow.c</h4><p>解析下行 $FLW 帧，按距离/角度做 P 控；含死区、滞回、超时停车。</p></div>
+    <div class="card"><h4>hd44780.c / pcf8574.c</h4><p>I²C 1602 LCD 驱动。</p></div>
+    <div class="card"><h4>stm32f1xx_it.c</h4><p>所有 ISR 入口（SysTick、DMA、USART、EXTI）。</p></div>
+    <div class="card"><h4>Inc/config.h, defines.h</h4><p>全部宏开关（变体、引脚映射、保护阈值、滤波系数）。</p></div>
+  </div>
+  <h3>信号板（signal_board_c8t6/src）</h3>
+  <div class="grid">
+    <div class="card"><h4>main.c</h4><p>三路 UART + CAN 初始化；蓝牙 START/STOP 状态机 <code>bt_armed</code>；BU04 $FLW 缓存；50 ms 周期向主控板转发；融合避障决策。</p></div>
+    <div class="card"><h4>tofsense_can.c/.h</h4><p>TOFSense-M CAN 协议解析（64 像素拼帧→左/中/右三区最小距离），三区危险/减速判别状态机。</p></div>
+  </div>
+
+  <h2 id="sec2">二、各模块职责 / 判定逻辑 / 性能</h2>
+  <table>
+    <thead><tr><th>模块</th><th>关键逻辑</th><th>指标</th></tr></thead>
+    <tbody>
+      <tr><td><code>bldc.c</code> DMA1_CH1 ISR</td><td>ADC 完成 → 偏置标定 2000 次 → 相电流 → <code>|i_DC|&gt;I_DC_MAX*A2BIT_CONV</code> 关 <code>BDTR.MOE</code> → <code>BLDC_controller_step()</code> → 写 TIM CCR</td><td><strong>16 kHz</strong>，&lt; 62.5 µs；<code>OverrunFlag</code> 防嵌套</td></tr>
+      <tr><td><code>BLDC_controller</code></td><td>霍尔扇区 + Park/Clarke + PI(id=0/iq=tgt) + 反 Park + SVPWM；COM/SIN/FOC × VLT/SPD/TRQ；<code>z_errCode</code>、弱磁</td><td>Matlab 生成；<code>n_max</code>/<code>i_max</code> 限位</td></tr>
+      <tr><td><code>util.c::readCommand</code></td><td><code>inIdx</code> 切换输入源（ADC/PPM/PWM/Serial/Nunchuk）→ deadband/min-max 归一化到 ±1000 → 越界置 <code>timeoutFlgADC</code></td><td>主循环节拍</td></tr>
+      <tr><td><code>usart2/3_rx_check</code></td><td>DMA 环形缓冲 + IDLE 中断；分段 memcpy 后调 <code>handle_input</code> / <code>parse_uart_control</code></td><td>&lt; IDLE timeout (4.5 char)</td></tr>
+      <tr><td><code>flw_follow.c::flw_apply</code></td><td><code>dist&lt;TARGET</code>→全停；<code>TARGET..TARGET+HYST</code>→60 cmd 蠕动；<code>&gt;TARGET+HYST</code>→<code>MIN+over*DIST_KP</code> 封顶 400；角度死区 ±10°，steer=angle×8 限 ±500</td><td><code>FLW_TIMEOUT_MS=1000</code> ms 失帧停</td></tr>
+      <tr><td><code>main</code> 主循环</td><td>读输入→安全/限速→滤波→混控→PWM；温度/电压/电流滤波；超时报警；停机检测</td><td>典型 200 Hz</td></tr>
+      <tr><td><code>control.c</code> PPM/PWM ISR</td><td>TIM2 µs 测脉宽，校验 900–2100 µs；SysTick 500 ms 失帧回中点 500</td><td>EXTI 优先级 0</td></tr>
+      <tr><td>信号板 <code>parse_pixel</code></td><td>ID 0x200-0x2FF 8 字节解码像素 → 64 像素位图凑满 → 三组 16 索引求各区最小距离/RSSI/status</td><td>CAN 1 Mbps；满 64 才发布</td></tr>
+      <tr><td>信号板 <code>tofsense_avoid_danger</code></td><td>7 个 if-else 选 ROTATE_CCW/CW / SHIFT_LEFT/RIGHT / SLOW_DOWN / NONE；围堵时 <code>s_turn_flag</code> 交替；<code>rssi&gt;thr &amp;&amp; status!=255</code> 才有效</td><td>danger=0.6 m、slow=1.0 m</td></tr>
+      <tr><td>信号板 <code>main</code></td><td>TOFSense 新帧→更新决策；50 ms 周期发帧；500 ms 蓝牙调试</td><td><strong>20 Hz</strong>；<code>__WFI</code> 节能</td></tr>
+      <tr><td>信号板 <code>bt_feed_byte</code></td><td>按行收 USART1，"START"→<code>bt_armed=1</code> + LED_ON + ACK_START；"STOP"→反向</td><td>RX 中断</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="sec3">三、系统架构</h2>
+<pre><code>┌──────────────────── 信号板 (C8T6) ─────────────────────┐
+│  BU03 蓝牙 ──USART1──► bt_feed_byte ─► bt_armed       │
+│  BU04 UWB  ──USART2──► flw_feed_byte ─► flw_*缓存     │
+│  TOFSense-M ──CAN1──► parse_pixel ─► s_zone           │
+│                                                       │
+│        每 50 ms: 仲裁 → snprintf("$FLW,...") ─USART3─►│
+└───────────────────────────┬───────────────────────────┘
+                            │ "$FLW,d,a,x,y,s\r\n"
+                            ▼ USART3-RX (PB11) + DMA + IDLE
+┌──────────────────── 主控板 (RCT6) ─────────────────────┐
+│  usart3_rx_check → parse_uart_control → flw_apply     │
+│           ↓                                           │
+│   uart_speed_cmd / uart_steer_cmd                     │
+│           ↓ (main loop ~1ms)                          │
+│  rateLimiter16 → filtLowPass32 → mixerFcn → pwml/pwmr │
+│           ↓                                           │
+│  bldc.c (16kHz DMA) → BLDC_controller_step → SVPWM    │
+│           ↓                                           │
+│   TIM1(Right) / TIM8(Left) → 6×PWM → 三相 MOSFET      │
+│                                                       │
+│  ADC1/2 ─DMA→ adc_buffer (相电流/电池/温度/油门刹车)  │
+└───────────────────────────────────────────────────────┘</code></pre>
+  <p>电源/外设：<code>OFF_PORT/PIN</code> 软自锁；<code>BUTTON_PIN</code> 长按调用 <code>poweroff()</code> 写 EEPROM 并放掉锁存。</p>
+
+  <h2 id="sec4">四、配合时序</h2>
+  <ol>
+    <li><strong>上电</strong>：主控板 <code>HAL_Init → SystemClock → MX_GPIO/TIM/ADC → BLDC_Init → 自锁 → Input_Lim_Init/Input_Init → ADC_Start → poweronMelody</code>；信号板 <code>SystemClock 72MHz → UART1/2/3 + CAN1 + tofsense_can_init → 心跳 LED</code>。</li>
+    <li><strong>稳态（每 50 ms）</strong>：信号板把最新仲裁帧推给主控板；主控板 <code>usart3_rx_check</code>（IDLE 触发）调 <code>parse_uart_control</code> 拆 <code>\n</code> 行 → <code>flw_apply</code> 写 <code>uart_*_cmd</code>。</li>
+    <li><strong>主控板主循环</strong>：<code>readCommand</code>→清零→（覆盖为 <code>uart_*_cmd</code>）→ rate→LP→mixer→<code>pwml/pwmr</code>。</li>
+    <li><strong>16 kHz FOC</strong>：DMA 中断把 <code>pwml/pwmr</code> 喂入 <code>rtU_*.r_inpTgt</code>，跑 FOC 写 PWM。</li>
+    <li><strong>关机</strong>：长按按键→<code>poweroffPressCheck</code>→<code>poweroff</code> → 释放 <code>OFF_PIN</code>。</li>
+  </ol>
+
+  <h2 id="sec5">五、保护机制</h2>
+  <ul>
+    <li><strong>过流 L1</strong>：<code>BLDC_controller</code> 内 <code>i_max</code> 限幅。</li>
+    <li><strong>过流 L2（硬斩波）</strong>：<code>bldc.c</code> 中 <code>|curL/R_DC| &gt; I_DC_MAX*A2BIT_CONV</code> → 清 <code>TIM_BDTR_MOE</code> 立即关三相。</li>
+    <li><strong>过温</strong>：<code>board_temp_deg_c ≥ TEMP_POWEROFF &amp;&amp; speedAvgAbs&lt;20</code> → <code>poweroff()</code>；<code>≥TEMP_WARNING</code> 5 哔。</li>
+    <li><strong>欠压</strong>：<code>&lt;BAT_DEAD &amp;&amp; speedAvgAbs&lt;20</code> 关机；<code>BAT_LVL1/LVL2</code> 哔。</li>
+    <li><strong>FOC 错误</strong>：<code>rtY_*.z_errCode</code> → 主循环 <code>enable=0</code> + 1 哔。</li>
+    <li><strong>超时</strong>：<code>timeoutFlgADC / timeoutFlgSerial / timeoutFlgGen</code> 任一 → 蜂鸣 + 不更新命令；<code>flw_check_timeout</code> 1 s 无帧硬清零。</li>
+    <li><strong>启动安全</strong>：<code>enable=0</code> 时要求初始命令 <code>|cmd|&lt;50</code> 才会自动 <code>enable=1</code>。</li>
+    <li><strong>PWM 边界</strong>：<code>pwm_margin=110</code> 保证电流采样窗口。</li>
+    <li><strong>OverrunFlag</strong>：阻止 FOC 中断重入。</li>
+    <li><strong>CAN AutoBusOff + AutoRetransmission</strong>：信号板 CAN 总线故障自恢复。</li>
+    <li><strong>蓝牙门控</strong>：<code>bt_armed=0</code> 信号板强制下发停车帧 <code>$FLW,0,0,0,0,3</code>。</li>
+    <li><strong>避障兜底</strong>：三面围堵 ROTATE 交替方向，防止反复同方向卡死。</li>
+    <li><strong>TOFSense 有效性</strong>：<code>rssi&gt;thr &amp;&amp; status!=255</code> 才参与判障。</li>
+    <li><strong>64 像素位图</strong>：必须全部收齐才更新区域，防止半帧脏数据。</li>
+    <li><strong>无活动停机</strong>：<code>inactivity_timeout_counter</code> 超过 <code>INACTIVITY_TIMEOUT</code> 分钟自动 <code>poweroff()</code>。</li>
+  </ul>
+
+  <h2 id="sec6">六、异常处理方式</h2>
+  <ul>
+    <li><strong>Hard/Mem/Bus/Usage Fault</strong>：<code>stm32f1xx_it.c</code> 全部 <code>while(1)</code>（等看门狗复位/手动断电）。</li>
+    <li><strong>UART ORE</strong>：信号板 <code>__HAL_UART_CLEAR_OREFLAG</code> + 读 DR；主控板由 HAL 处理。</li>
+    <li><strong>行缓冲溢出</strong>：<code>flw_line</code> / <code>bt_line</code> 超长 → <code>idx=0</code> 丢弃当前行。</li>
+    <li><strong>sscanf 失败</strong>：返回 0，保持上一帧数据 + 不更新 <code>flw_last_ms</code>，被超时机制兜底。</li>
+    <li><strong>I²C Nunchuk 失败</strong>：3 次重试 → <code>NUNCHUK_RECONNECTING</code> → 还原中点 + 置超时标志。</li>
+    <li><strong>PPM/PWM 越界</strong>：丢弃该周期，<code>ppm_valid=false</code>；500 ms 无脉冲恢复中点。</li>
+    <li><strong>ADC 范围错</strong>：<code>readCommand</code> 置 <code>timeoutFlgADC</code>，主循环禁能。</li>
+    <li><strong>FOC z_errCode</strong>：<code>enableFin = enable &amp;&amp; !errCode</code> 保证一旦出错电机零占空。</li>
+    <li><strong>CAN 接收异常</strong>：<code>HAL_CAN_GetRxMessage != HAL_OK</code> 或 <code>DLC&lt;7</code> 直接返回；标准 ID 之外被过滤器拦截。</li>
+    <li><strong>EEPROM 写错误</strong>：HAL FLASH 状态返回上层；上电默认值兜底。</li>
+  </ul>
+
+  <h2 id="sec7">七、优先级</h2>
+  <p>NVIC 抢占组 <code>NVIC_PRIORITYGROUP_4</code>（4 位抢占，0 位次优先级）。<strong>数值越小越高</strong>。</p>
+  <table>
+    <thead><tr><th>IRQ</th><th>Pre</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>DMA1_Channel1</code> (FOC 16 kHz)</td><td><strong>0</strong></td><td>主控板最重要——电机控制实时性</td></tr>
+      <tr><td>EXTI2/3/15_10（PPM/PWM 捕获）</td><td>0</td><td>时间敏感的脉宽测量</td></tr>
+      <tr><td>USART2/3_IRQn + DMA1_Ch2/3/6/7</td><td>0</td><td>同级，靠 IDLE 唤醒解析</td></tr>
+      <tr><td>信号板 USART1/2</td><td>1</td><td>比 CAN 优先（保 BT/UWB 时序）</td></tr>
+      <tr><td>信号板 USB_LP_CAN1_RX0</td><td>2</td><td>64 帧拼装可容忍延迟</td></tr>
+      <tr><td>SysTick</td><td>0</td><td>HAL_IncTick + PPM/PWM 软定时</td></tr>
+    </tbody>
+  </table>
+  <p><strong>应用层优先级（主循环判定顺序，越靠前越高）</strong>：</p>
+  <ol>
+    <li>信号板：<code>!bt_armed</code> 停车 → 闪避/围堵 → 正常 UWB 跟随 → UWB 超时停车。</li>
+    <li>主控板：<code>TEMP_POWEROFF</code> / <code>BAT_DEAD</code> → <code>z_errCode</code> → <code>timeoutFlgADC</code> → <code>timeoutFlgSerial</code> → <code>timeoutFlgGen</code> → <code>TEMP_WARNING</code> → <code>BAT_LVL1/2</code> → 倒车蜂鸣。</li>
+    <li>UWB 控制段在 <code>readCommand</code> 之后<strong>直接覆盖</strong>所有 ADC/Serial 超时标志和 <code>errCode</code>，把跟随命令置为最高数据源。</li>
+    <li>FOC 内 <code>enableFin = enable &amp;&amp; !errCode</code> —— 硬件级最终一票否决。</li>
+  </ol>
+
+  <h2 id="sec8">八、信号板深层逻辑</h2>
+  <h3>1. 三层仲裁（每 50 ms 一次）</h3>
+  <ul>
+    <li><strong>第一层 蓝牙门控</strong>：<code>bt_armed==0</code> 直接发 <code>$FLW,0,0,0,0,3</code>（status=3=lost），主控端 <code>flw_apply</code> 见 <code>status!=1</code> → 命令清零。物理急停通道。</li>
+    <li><strong>第二层 避障覆盖</strong>：<code>oa_result.action ∈ {SHIFT_LEFT/RIGHT, ROTATE_CW/CCW}</code> 时，<strong>完全抛弃 UWB 数据</strong>，用 <code>(dist_cm, steer_x10)</code> 自定帧；闪避 <code>shift_steer=1100/dist=180</code>，围堵 <code>rotate_steer=1500/dist=130</code>。</li>
+    <li><strong>第三层 跟随融合</strong>：<code>build_avoid_frame</code> 中 <code>angle = -uwb_angle_x10 * 5</code>（反向×5 增益，差速车需更大转向修正横向偏差）；<code>SLOW_DOWN</code> 时把上传的 <code>dist</code> 钳位到 <code>slow_dist=200</code>，让主控 P 控 <code>speed=(dist-150)*KP</code> 自然降速。</li>
+  </ul>
+  <h3>2. 避障决策树设计哲学</h3>
+  <ul>
+    <li>把 8×8 TOF 像素简化到<strong>三扇区最小距离</strong>——保留最危险障碍信息，丢弃细节，决策稳定。</li>
+    <li>多区同时报警优先选<strong>单侧最大空隙方向</strong>避让；左右对称报警时<strong>默认左闪</strong>消除二义性。</li>
+    <li>三面围堵 <code>s_turn_flag</code> 让连续围堵帧交替输出 CCW/CW，避免锁死贴墙。</li>
+    <li><code>signal_strength_thr=2 &amp; status!=255</code> 过滤空气/玻璃误检触发的幻觉避障。</li>
+  </ul>
+  <h3>3. CAN 64 像素位图凑齐机制</h3>
+  <ul>
+    <li><code>s_rx_mask</code> 用 64-bit 位图保证<strong>完整一帧才发布</strong>，避免拼帧中部分像素求最小导致漏检。</li>
+    <li>凑齐后 <code>s_rx_mask=0</code> 自动开始下一帧。</li>
+  </ul>
+  <h3>4. 协议复用</h3>
+  <p>信号板对主控板<strong>永远只用 <code>$FLW</code></strong>。避障语义被"翻译"成 UWB 跟随语义（虚拟目标点），主控板 <code>flw_follow.c</code> 无需任何改动，保持解耦。<code>status=1</code>=跟随，<code>status=3</code>=停车。</p>
+  <h3>5. 节能 + 抗抖</h3>
+  <p>主循环 <code>__WFI</code> 睡眠，RX/CAN/SysTick 中断唤醒；50 ms 节拍 <code>(int32_t)(now-next_tx)&gt;=0</code> + <code>next_tx += FORWARD_PERIOD_MS</code> 是抗时钟回卷的标准 tick 算法，长运行无累积漂移。</p>
+  <h3>6. LED 双重含义</h3>
+  <p><code>PC13</code> 上电 6 次心跳验证 GPIO 正常；之后常亮=已布防、灭=未布防——同时承担运行状态指示和电源/固件健康指示。</p>
+  <h3>7. 调试串口回写</h3>
+  <p>通过 USART1（蓝牙）把三区距离 + 决策动作 + UWB 状态实时广播给手机/BU03，现场无线调参不需重插线。</p>
+
+  <hr>
+  <p style="text-align:center;color:var(--muted);font-size:12px">Generated from source code analysis · V1.0</p>
+</main>
+</div>
+</body>
+</html>

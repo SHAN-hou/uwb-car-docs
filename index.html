@@ -6,23 +6,29 @@
 <title>UWB跟随避障小车 - 文档中心</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif; background:#0f172a; color:#e2e8f0; min-height:100vh; display:flex; align-items:center; justify-content:center; }
-  .wrap { max-width:400px; width:90%; padding:40px 0; }
-  h1 { font-size:22px; text-align:center; margin-bottom:8px; }
-  p { text-align:center; color:#94a3b8; font-size:13px; margin-bottom:32px; }
-  a { display:block; background:#1e293b; border:1px solid #334155; border-radius:12px; padding:18px 20px; margin-bottom:12px; text-decoration:none; color:#e2e8f0; transition:all .2s; }
+  body { font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif; background:#0f172a; color:#e2e8f0; min-height:100vh; padding:40px 0; }
+  .wrap { max-width:460px; width:90%; margin:0 auto; }
+  h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+  .sub { text-align:center; color:#94a3b8; font-size:13px; margin-bottom:28px; }
+  .section-title { font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:2px; margin:28px 0 12px; padding-left:4px; }
+  a { display:block; background:#1e293b; border:1px solid #334155; border-radius:12px; padding:16px 18px; margin-bottom:10px; text-decoration:none; color:#e2e8f0; transition:all .2s; }
   a:hover { border-color:#38bdf8; background:#1a2540; }
-  .title { font-size:15px; font-weight:600; margin-bottom:4px; }
-  .desc { font-size:12px; color:#94a3b8; }
-  .tag { display:inline-block; padding:2px 8px; border-radius:8px; font-size:10px; font-weight:600; margin-right:6px; }
+  .title { font-size:14px; font-weight:600; margin-bottom:3px; }
+  .desc { font-size:11px; color:#94a3b8; line-height:1.5; }
+  .tag { display:inline-block; padding:2px 8px; border-radius:8px; font-size:10px; font-weight:600; margin-right:5px; }
   .t1 { background:rgba(56,189,248,.15); color:#38bdf8; }
   .t2 { background:rgba(248,113,113,.15); color:#f87171; }
+  .t3 { background:rgba(167,139,250,.15); color:#a78bfa; }
+  .t4 { background:rgba(52,211,153,.15); color:#34d399; }
+  .t5 { background:rgba(251,191,36,.15); color:#fbbf24; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>UWB跟随+避障小车</h1>
-  <p>技术文档中心</p>
+  <p class="sub">技术文档中心 · 多AI分析对照</p>
+
+  <div class="section-title">Cascade 分析</div>
   <a href="system_architecture.html">
     <div class="title"><span class="tag t1">架构</span>系统技术文档</div>
     <div class="desc">模块职责 · 数据流 · 协议 · 保护机制 · 异常处理</div>
@@ -30,6 +36,24 @@
   <a href="signal_board_analysis.html">
     <div class="title"><span class="tag t2">分析</span>信号板深度分析</div>
     <div class="desc">风险评估 · 数据流走向 · 决策优先级 · 架构合理性 · 改进建议</div>
+  </a>
+
+  <div class="section-title">Claude 4.7 分析</div>
+  <a href="claude_analysis.html">
+    <div class="title"><span class="tag t3">Claude</span>整车代码全景分析</div>
+    <div class="desc">模块综述 · 职责/逻辑/性能 · 架构 · 时序 · 保护 · 异常 · 优先级 · 信号板深层逻辑</div>
+  </a>
+
+  <div class="section-title">GPT 分析</div>
+  <a href="gpt_analysis.html">
+    <div class="title"><span class="tag t4">GPT</span>V1.0 代码行为分析报告</div>
+    <div class="desc">模块综述 · 职责逻辑 · 三层架构 · 配合时序 · 保护机制 · 异常处理 · 优先级 · 信号板深层逻辑</div>
+  </a>
+
+  <div class="section-title">DeepSeek 分析</div>
+  <a href="deepseek_analysis.html">
+    <div class="title"><span class="tag t5">DeepSeek</span>系统代码分析报告</div>
+    <div class="desc">模块职责 · 具体逻辑 · 系统架构 · 时序 · 保护 · 异常 · 优先级 · 信号板逻辑 · 漏洞 · 配合问题</div>
   </a>
 </div>
 </body>

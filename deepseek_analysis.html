@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系统代码分析报告 - BLDC + UWB + TOF</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text-dim: #8b949e;
+  --accent: #58a6ff;
+  --danger: #f85149;
+  --warn: #d29922;
+  --ok: #3fb950;
+  --purple: #a371f7;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+nav {
+  position: fixed; top:0; left:0; bottom:0; width:260px;
+  background: var(--surface); border-right:1px solid var(--border);
+  overflow-y:auto; padding:20px 0; z-index:100;
+}
+nav h2 {
+  font-size:14px; color:var(--text-dim); padding:0 20px 12px;
+  text-transform:uppercase; letter-spacing:1px;
+}
+nav a {
+  display:block; padding:6px 20px; color:var(--text-dim);
+  text-decoration:none; font-size:13px; border-left:2px solid transparent;
+  transition:all .15s;
+}
+nav a:hover, nav a.active { color:var(--text); border-left-color:var(--accent); }
+nav .sub { padding-left:36px; font-size:12px; }
+main {
+  margin-left:260px; padding:40px 60px; max-width:1100px;
+}
+h1 { font-size:28px; margin-bottom:8px; color:#fff; }
+h2 {
+  font-size:20px; margin:48px 0 16px; padding-bottom:8px;
+  border-bottom:1px solid var(--border); color:var(--accent);
+}
+h3 { font-size:16px; margin:24px 0 8px; color:var(--purple); }
+h4 { font-size:14px; margin:16px 0 6px; color:var(--text); }
+p { margin:8px 0; color:var(--text-dim); }
+table {
+  width:100%; border-collapse:collapse; margin:12px 0;
+  font-size:13px;
+}
+th, td {
+  padding:8px 12px; text-align:left; border:1px solid var(--border);
+}
+th { background:var(--surface); color:var(--text); font-weight:600; }
+td { color:var(--text-dim); }
+tr:hover td { background:rgba(88,166,255,0.04); }
+code {
+  background:var(--surface); padding:2px 6px; border-radius:4px;
+  font-size:12px; color:var(--accent); border:1px solid var(--border);
+}
+pre {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:8px; padding:16px; overflow-x:auto;
+  font-size:12px; line-height:1.5; margin:12px 0;
+}
+pre code { background:none; border:none; padding:0; color:var(--text); }
+ul, ol { margin:8px 0 8px 24px; color:var(--text-dim); }
+li { margin:4px 0; }
+strong { color:var(--text); }
+.badge {
+  display:inline-block; padding:2px 8px; border-radius:12px;
+  font-size:11px; font-weight:600;
+}
+.badge-danger { background:rgba(248,81,73,0.15); color:var(--danger); }
+.badge-warn { background:rgba(210,153,34,0.15); color:var(--warn); }
+.badge-ok { background:rgba(63,185,80,0.15); color:var(--ok); }
+.badge-info { background:rgba(88,166,255,0.15); color:var(--accent); }
+.meta { color:var(--text-dim); font-size:13px; margin-bottom:32px; }
+.card {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:8px; padding:16px; margin:12px 0;
+}
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+@media (max-width:900px) {
+  nav { display:none; }
+  main { margin-left:0; padding:20px; }
+  .grid-2, .grid-3 { grid-template-columns:1fr; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <h2>目录导航</h2>
+  <a href="#s1">一、模块职责综述</a>
+  <a href="#s2">二、具体职责与逻辑</a>
+  <a href="#s2-1" class="sub">2.1 BLDC_Controller</a>
+  <a href="#s2-2" class="sub">2.2 Main Loop</a>
+  <a href="#s2-3" class="sub">2.3 Comms</a>
+  <a href="#s2-4" class="sub">2.4 Control</a>
+  <a href="#s2-5" class="sub">2.5 EEPROM</a>
+  <a href="#s2-6" class="sub">2.6 FLW_Follow</a>
+  <a href="#s2-7" class="sub">2.7 Util</a>
+  <a href="#s2-8" class="sub">2.8 Setup</a>
+  <a href="#s2-9" class="sub">2.9 Signal Board</a>
+  <a href="#s2-10" class="sub">2.10 TOFSense CAN</a>
+  <a href="#s3">三、系统架构</a>
+  <a href="#s4">四、配合时序</a>
+  <a href="#s5">五、保护机制</a>
+  <a href="#s6">六、异常处理</a>
+  <a href="#s7">七、优先级</a>
+  <a href="#s8">八、信号板深层逻辑</a>
+  <a href="#s9">九、明显漏洞</a>
+  <a href="#s10">十、配合问题</a>
+</nav>
+
+<main>
+
+<h1>🔧 系统代码分析报告</h1>
+<p class="meta">基于 STM32F103 的 BLDC 双电机差速驱动 + UWB 跟随 + TOF 避障系统 &nbsp;|&nbsp; 分析日期：2026-05-22</p>
+
+<!-- ====== 第一大类 ====== -->
+<h2 id="s1">一、模块职责综述</h2>
+<div class="card">
+<table>
+<tr><th>模块</th><th>核心文件</th><th>核心职责</th></tr>
+<tr><td><strong>BLDC_Controller</strong></td><td><code>BLDC_controller.c/h</code></td><td>Simulink 自动生成 FOC/SIN/COM 电机控制算法，含 PI 调节器、弱磁控制、死区补偿</td></tr>
+<tr><td><strong>Main Loop</strong></td><td><code>main.c</code></td><td>系统主循环：读取指令→滤波→混控→输出→安全检测→蜂鸣告警→超时关机</td></tr>
+<tr><td><strong>Comms</strong></td><td><code>comms.c/h</code></td><td>串口调试协议：GET/SET/WATCH/HELP/INIT/SAVE 命令，运行时参数读写</td></tr>
+<tr><td><strong>Control</strong></td><td><code>control.c</code></td><td>输入设备驱动：PPM 解码、PWM 脉宽捕获、Nunchuk I2C 读取、状态机管理</td></tr>
+<tr><td><strong>EEPROM</strong></td><td><code>eeprom.c/h</code></td><td>Flash 模拟 EEPROM：双页轮转存储，掉电恢复，参数持久化</td></tr>
+<tr><td><strong>FLW_Follow</strong></td><td><code>flw_follow.c/h</code></td><td>UWB $FLW 协议解析 + P 控制器：距离→速度、角度→转向</td></tr>
+<tr><td><strong>Util</strong></td><td><code>util.c/h</code></td><td>工具集：蜂鸣器、滤波器、ADC 校准、输入映射、BBCAR 驾驶模式、巡航控制、驻车保持、电刹</td></tr>
+<tr><td><strong>Setup</strong></td><td><code>setup.c/h</code></td><td>硬件初始化：TIM1/TIM8 双电机 PWM、ADC1/ADC2 双 ADC、USART2/3 DMA、I2C</td></tr>
+<tr><td><strong>Signal Board</strong></td><td><code>signal_board_c8t6/</code></td><td>信号板：蓝牙门控(START/STOP)、UWB 帧转发、TOFSense CAN 避障叠加</td></tr>
+<tr><td><strong>TOFSense CAN</strong></td><td><code>tofsense_can.c/h</code></td><td>TOF 激光雷达 CAN 协议解析：64 像素→三区距离→避障决策</td></tr>
+<tr><td><strong>BU04 UWB</strong></td><td><code>BU04程序/</code></td><td>BU04 UWB 模组固件：双边测距、角度计算、$FLW 帧输出</td></tr>
+<tr><td><strong>Ai-UWB-SDK</strong></td><td><code>Ai-UWB-SDK/</code></td><td>UWB SDK + ESP32 跟随车控制器（备选方案）</td></tr>
+</table>
+</div>
+
+<!-- ====== 第二大类 ====== -->
+<h2 id="s2">二、各模块具体职责、判断逻辑、性能指标</h2>
+
+<h3 id="s2-1">2.1 BLDC_Controller</h3>
+<div class="card">
+<h4>职责</h4>
+<ul>
+  <li>三种控制类型：COM（六步换相）、SIN（正弦波）、FOC（磁场定向控制）</li>
+  <li>四种控制模式：OPEN（开环）、VLT（电压）、SPD（速度闭环）、TRQ（转矩闭环）</li>
+  <li>弱磁控制/相位超前：线性插值从 <code>FIELD_WEAK_LO</code> 到 <code>FIELD_WEAK_HI</code></li>
+  <li>电流 PI 调节器（D/Q 轴）+ 速度 PI 调节器 + 反电动势观测器</li>
+</ul>
+<h4>判断逻辑</h4>
+<ul>
+  <li>控制模式状态机：<code>IN_OPEN → IN_VOLTAGE_MODE → IN_SPEED_MODE → IN_TORQUE_MODE</code></li>
+  <li>弱磁启动：目标转速 ≥ <code>FIELD_WEAK_LO</code>，线性增加到 <code>FIELD_WEAK_HI</code></li>
+  <li>电流斩波：DC 链路电流 > <code>I_DC_MAX</code> 时强制限幅</li>
+  <li>错误检测：<code>z_errCode</code> 非零时触发电机禁用</li>
+</ul>
+<h4>性能指标</h4>
+<div class="grid-3">
+  <div><strong>PWM 频率</strong><br>16 kHz</div>
+  <div><strong>死区时间</strong><br>48 时钟周期</div>
+  <div><strong>最大相电流</strong><br>15A (A2BIT=50)</div>
+  <div><strong>最大转速</strong><br>1500 rpm</div>
+  <div><strong>控制周期</strong><br>与 PWM 同步</div>
+</div>
+</div>
+
+<h3 id="s2-2">2.2 Main Loop</h3>
+<div class="card">
+<h4>职责</h4>
+<ul>
+  <li>每 16 个 buzzerTimer tick 执行一次控制循环</li>
+  <li>调用链：<code>readCommand() → calcAvgSpeed() → 安全检测 → 滤波 → 混控 → 输出</code></li>
+  <li>电机使能安全检查：初始输入必须 &lt; 50 才允许使能</li>
+  <li>多级告警：温度、电池、超时、错误码</li>
+</ul>
+<h4>判断逻辑</h4>
+<ul>
+  <li>电机使能：<code>enable==0 && !errCode && ABS(cmd)&lt;50</code></li>
+  <li>电池低压关机：<code>batVoltage &lt; BAT_DEAD && speedAvgAbs &lt; 20</code></li>
+  <li>过温关机：<code>board_temp ≥ TEMP_POWEROFF && speedAvgAbs &lt; 20</code></li>
+  <li>不活动关机：<code>inactivity_timeout_counter &gt; INACTIVITY_TIMEOUT*60*1000/DELAY_IN_MAIN_LOOP</code></li>
+</ul>
+<h4>性能指标</h4>
+<div class="grid-3">
+  <div><strong>主循环延迟</strong><br>~2ms</div>
+  <div><strong>超时阈值</strong><br>20 次错误</div>
+  <div><strong>调试输出</strong><br>每 125ms</div>
+  <div><strong>反馈输出</strong><br>每 10ms</div>
+</div>
+</div>
+
+<h3 id="s2-3">2.3 Comms</h3>
+<div class="card">
+<h4>职责</h4>
+<ul>
+  <li>串口调试协议：GET/SET/WATCH/HELP/INIT/SAVE</li>
+  <li>参数表管理：PARAMETER（可持久化）和 VARIABLE（只读）</li>
+  <li>内部/外部格式转换 + 范围校验</li>
+</ul>
+<h4>性能指标</h4>
+<div class="grid-3">
+  <div><strong>缓冲区</strong><br>64 字节</div>
+  <div><strong>串口超时</strong><br>~0.8 秒</div>
+  <div><strong>Watch 上限</strong><br>15 条目</div>
+</div>
+</div>
+
+<h3 id="s2-4">2.4 Control</h3>
+<div class="card">
+<h4>职责</h4>
+<ul>
+  <li>PPM 解码：下降沿中断 + TIM2 计时</li>
+  <li>PWM 脉宽捕获：双通道上升/下降沿中断，互锁检测</li>
+  <li>Nunchuk I2C：初始化序列 + 6 字节读取 + 校验和</li>
+  <li>Nunchuk 状态机：CONNECTING → CONNECTED → RECONNECTING → DISCONNECTED</li>
+</ul>
+<h4>判断逻辑</h4>
+<ul>
+  <li>PPM 帧同步：脉冲间隔 &gt; 3000us 视为帧起始</li>
+  <li>PPM 有效性：每通道 [900, 2100] us</li>
+  <li>Nunchuk 校验：checksum==0 或 ==0x5FA 无效</li>
+  <li>超时处理：500ms 无信号 → 归中值</li>
+</ul>
+</div>
+
+<h3 id="s2-5">2.5 EEPROM</h3>
+<div class="card">
+<h4>职责</h4>
+<ul>
+  <li>Flash 模拟 EEPROM：双页轮转写入</li>
+  <li>页状态机：ERASED → RECEIVE_DATA → VALID_PAGE</li>
+  <li>掉电恢复：自动检测并修复页状态</li>
+</ul>
+<h4>性能指标</h4>
+<div class="grid-3">
+  <div><strong>页大小</strong><br>1KB</div>
+  <div><strong>变量数量</strong><br>最多 19</div>
+  <div><strong>每变量开销</strong><br>4 字节</div>
+  <div><strong>Flash 寿命</strong><br>~10,000 次</div>
+</div>
+</div>
+
+<h3 id="s2-6">2.6 FLW_Follow</h3>
+<div class="card">
+<h4>职责</h4>
+<ul>
+  <li>$FLW 协议解析：<code>$FLW,dist_cm,angle_x10,x_cm,y_cm,status</code></li>
+  <li>P 控制器：距离误差→速度指令，角度→转向指令</li>
+  <li>安全超时：无帧接收超时自动停车</li>
+</ul>
+<h4>判断逻辑</h4>
+<ul>
+  <li>status != 1 → 停车</li>
+  <li>dist &lt; TARGET → 全锁止（速度=0 且转向=0）</li>
+  <li>TARGET ≤ dist &lt; TARGET+HYST → 最低速度，无转向</li>
+  <li>dist ≥ TARGET+HYST → 比例控制</li>
+  <li>|angle| &lt; DEADZONE → 转向=0</li>
+</ul>
+<h4>性能指标</h4>
+<div class="grid-3">
+  <div><strong>目标距离</strong><br>150 cm</div>
+  <div><strong>迟滞</strong><br>15 cm</div>
+  <div><strong>距离 Kp</strong><br>3</div>
+  <div><strong>角度 Kp</strong><br>4</div>
+  <div><strong>最大速度</strong><br>100</div>
+  <div><strong>超时</strong><br>1000 ms</div>
+</div>
+</div>
+
+<h3 id="s2-7">2.7 Util</h3>
+<div class="card">
+<h4>职责</h4>
+<ul>
+  <li>蜂鸣器控制、固定点滤波器、ADC 自动校准</li>
+  <li>输入类型检测（Normal Pot / Mid-Resting Pot）</li>
+  <li>多输入源读取（ADC/Nunchuk/Serial/PPM/PWM/iBUS）</li>
+  <li>巡航控制、驻车保持、电刹、BBCAR 4 档驾驶模式</li>
+</ul>
+<h4>性能指标</h4>
+<div class="grid-3">
+  <div><strong>滤波器系数</strong><br>0.1 (fixdt)</div>
+  <div><strong>速率限制</strong><br>30.0 (fixdt)</div>
+  <div><strong>ADC 保护超时</strong><br>150 周期</div>
+  <div><strong>校准超时</strong><br>20 秒</div>
+</div>
+</div>
+
+<h3 id="s2-8">2.8 Setup</h3>
+<div class="card">
+<h4>职责</h4>
+<ul>
+  <li>TIM1（右电机）主模式 → TRGO 触发 TIM8</li>
+  <li>TIM8（左电机）门控从模式 → TRGO 触发 ADC1/ADC2</li>
+  <li>USART2/3 DMA 循环接收 + IDLE 中断</li>
+</ul>
+<h4>性能指标</h4>
+<div class="grid-3">
+  <div><strong>ADC 时钟</strong><br>16 MHz</div>
+  <div><strong>ADC 采样</strong><br>7.5 周期</div>
+  <div><strong>USART2</strong><br>115200 (长线)</div>
+  <div><strong>USART3</strong><br>115200 (短线)</div>
+</div>
+</div>
+
+<h3 id="s2-9">2.9 Signal Board</h3>
+<div class="card">
+<h4>职责</h4>
+<ul>
+  <li>蓝牙门控：接收 START/STOP，控制 <code>bt_armed</code></li>
+  <li>UWB 帧转发：从 BU04 接收 $FLW，叠加避障后转发</li>
+  <li>TOFSense CAN 避障：三区决策，20Hz 周期发送</li>
+</ul>
+<h4>判断逻辑</h4>
+<ul>
+  <li>门控：bt_armed==0 → 停车帧</li>
+  <li>避障优先级：闪避/围堵 &gt; UWB 跟随 &gt; 停车</li>
+  <li>三区同时危险 → 围堵旋转脱困（交替 CW/CCW）</li>
+  <li>UWB 超时 500ms → 停车</li>
+</ul>
+<h4>性能指标</h4>
+<div class="grid-3">
+  <div><strong>发送频率</strong><br>20 Hz</div>
+  <div><strong>BU04 超时</strong><br>500 ms</div>
+  <div><strong>CAN 速率</strong><br>1 Mbps</div>
+  <div><strong>危险距离</strong><br>0.60 m</div>
+  <div><strong>减速距离</strong><br>1.0 m</div>
+</div>
+</div>
+
+<h3 id="s2-10">2.10 TOFSense CAN</h3>
+<div class="card">
+<h4>职责</h4>
+<ul>
+  <li>CAN 协议解析：StdID 0x200+id，24-bit 距离，8-bit 状态，16-bit 信号强度</li>
+  <li>64 像素双缓冲：位图跟踪接收状态</li>
+  <li>三区汇总：左/中/右各 16 像素取最小有效距离</li>
+</ul>
+<h4>判断逻辑</h4>
+<ul>
+  <li>像素有效性：dis_status==0 且 signal_strength &gt; threshold</li>
+  <li>64 帧收齐：s_rx_mask == 0xFFFFFFFFFFFFFFFFULL</li>
+  <li>围堵状态机：s_turn_flag 交替切换旋转方向</li>
+</ul>
+</div>
+
+<!-- ====== 第三大类 ====== -->
+<h2 id="s3">三、系统架构</h2>
+
+<h3>物理层拓扑</h3>
+<pre><code>[遥控器 BU03]──蓝牙──>[HC-04]──UART1──>[信号板 C8T6]
+                                       │    ├── CAN1 ── [TOFSense]
+[标签 BU04]──UWB──>[基站 BU04]──UART2──>│    ├── UART3 ──> 电机板
+
+[电机驱动板 STM32F103RCT6]
+  ├── TIM1 → 右电机 (三相 PWM)
+  ├── TIM8 → 左电机 (三相 PWM)
+  ├── ADC1/ADC2 → 相电流 + DC 链路 + 电池 + 温度 + 电位器
+  ├── USART2 → 侧板/调试/控制
+  └── USART3 → 信号板/调试/控制</code></pre>
+
+<h3>软件分层架构</h3>
+<pre><code>┌─────────────────────────────────────────┐
+│           应用层 (Application)           │
+│  main.c / flw_follow.c / util.c (BBCAR) │
+├─────────────────────────────────────────┤
+│           服务层 (Service)               │
+│  comms.c / eeprom.c / control.c         │
+├─────────────────────────────────────────┤
+│           算法层 (Algorithm)             │
+│  BLDC_controller.c (Simulink 自动生成)   │
+├─────────────────────────────────────────┤
+│           驱动层 (Driver)                │
+│  setup.c / HAL / CMSIS                  │
+└─────────────────────────────────────────┘</code></pre>
+
+<!-- ====== 第四大类 ====== -->
+<h2 id="s4">四、各模块配合时序</h2>
+
+<h3>系统启动时序</h3>
+<pre><code>上电 → HAL_Init() → SystemClock_Config() → MX_GPIO_Init()
+    → MX_TIM_Init() → MX_ADC1/2_Init() → BLDC_Init()
+    → Input_Lim_Init() → Input_Init() → ADC_Start()
+    → poweronMelody() → MULTI_MODE 检测 → 等待按键释放 → 主循环</code></pre>
+
+<h3>主循环控制时序</h3>
+<pre><code>buzzerTimer 检查 (每 16 tick)
+  ├── readCommand() → readInputRaw() → calcInputCmd()
+  ├── calcAvgSpeed()
+  ├── 电机使能安全检查
+  ├── standstillHold() / electricBrake()
+  ├── flw_check_timeout()
+  ├── 滤波: rateLimiter16() → filtLowPass32()
+  ├── 混控: mixerFcn()
+  ├── 输出: pwml/pwmr 赋值
+  ├── 温度/电池/电流计算
+  ├── 调试/反馈串口输出
+  └── 蜂鸣告警判断</code></pre>
+
+<h3>UWB 跟随数据流</h3>
+<pre><code>[标签 BU04] ──UWB──> [基站 BU04]
+                         │ UART2 115200
+                         ▼ $FLW,d,a,x,y,s\r\n
+              ┌──────────┴──────────┐
+        [信号板 C8T6]         [电机板直连]
+         bt_armed 门控         USART3 DMA
+         TOF 避障叠加          flw_follow 解析
+              │                     │
+         UART3 $FLW,d',a'     P 控制器 → cmd
+              │                     │
+              └──────────┬──────────┘
+                         ▼
+                   主循环混控输出</code></pre>
+
+<h3>ADC 采样同步</h3>
+<pre><code>TIM1 (右电机) ──TRGO──> TIM8 (左电机, Gated Slave)
+                            │ TRGO (带偏移)
+                    ┌───────┴───────┐
+                  ADC1             ADC2
+              (右电机相电流)    (左电机相电流)</code></pre>
+
+<!-- ====== 第五大类 ====== -->
+<h2 id="s5">五、各模块保护机制</h2>
+<div class="card">
+<table>
+<tr><th>模块</th><th>保护机制</th><th>触发条件</th><th>响应</th></tr>
+<tr><td>BLDC_Controller</td><td>电流斩波</td><td>DC 电流 &gt; I_DC_MAX</td><td><span class="badge badge-danger">强制限幅</span></td></tr>
+<tr><td>BLDC_Controller</td><td>错误码</td><td>硬件/算法异常</td><td><span class="badge badge-danger">电机禁用</span></td></tr>
+<tr><td>Main Loop</td><td>电机使能安全</td><td>初始输入 ≥ 50</td><td><span class="badge badge-warn">拒绝使能</span></td></tr>
+<tr><td>Main Loop</td><td>过温关机</td><td>temp ≥ TEMP_POWEROFF</td><td><span class="badge badge-danger">poweroff()</span></td></tr>
+<tr><td>Main Loop</td><td>电池低压关机</td><td>bat &lt; BAT_DEAD</td><td><span class="badge badge-danger">poweroff()</span></td></tr>
+<tr><td>Main Loop</td><td>不活动关机</td><td>超时无指令</td><td><span class="badge badge-danger">poweroff()</span></td></tr>
+<tr><td>Control</td><td>PPM/PWM 超时</td><td>500ms 无信号</td><td><span class="badge badge-warn">归中值</span></td></tr>
+<tr><td>Control</td><td>Nunchuk 超时</td><td>timeoutCntGen &gt; 3</td><td><span class="badge badge-warn">归中+重连</span></td></tr>
+<tr><td>Util</td><td>ADC 保护</td><td>ADC 超范围 150 周期</td><td><span class="badge badge-warn">timeoutFlgADC</span></td></tr>
+<tr><td>FLW_Follow</td><td>UWB 超时</td><td>1000ms 无帧</td><td><span class="badge badge-danger">归零</span></td></tr>
+<tr><td>Signal Board</td><td>蓝牙门控</td><td>bt_armed == 0</td><td><span class="badge badge-danger">停车帧</span></td></tr>
+<tr><td>Signal Board</td><td>TOF 避障</td><td>障碍 &lt; 危险距离</td><td><span class="badge badge-warn">覆盖 UWB</span></td></tr>
+<tr><td>EEPROM</td><td>掉电恢复</td><td>页状态异常</td><td><span class="badge badge-info">自动修复</span></td></tr>
+</table>
+</div>
+
+<!-- ====== 第六大类 ====== -->
+<h2 id="s6">六、各模块异常处理方式</h2>
+<div class="card">
+<table>
+<tr><th>模块</th><th>异常类型</th><th>处理方式</th><th>恢复方式</th></tr>
+<tr><td>BLDC_Controller</td><td>过流/过速/霍尔丢失</td><td>z_errCode 置位 → 电机禁用 + 蜂鸣</td><td>重新上电</td></tr>
+<tr><td>Main Loop</td><td>超时标志/温度/电池</td><td>分级蜂鸣 (1-5声)，严重时 poweroff()</td><td>物理恢复</td></tr>
+<tr><td>Comms</td><td>命令/参数未找到</td><td>printError(1-10)</td><td>重新发送</td></tr>
+<tr><td>Control</td><td>PPM/PWM/Nunchuk 失败</td><td>500ms 后归中；Nunchuk 降级重连</td><td>信号恢复</td></tr>
+<tr><td>EEPROM</td><td>页损坏/写入失败</td><td>EE_Init() 自动修复或格式化</td><td>使用默认值</td></tr>
+<tr><td>FLW_Follow</td><td>帧丢失/格式错误</td><td>超时→归零；status≠1→归零</td><td>有效帧恢复</td></tr>
+<tr><td>Signal Board</td><td>CAN 失败/BU04 掉线</td><td>蓝牙上报错误；停车帧</td><td>数据恢复</td></tr>
+</table>
+</div>
+
+<!-- ====== 第七大类 ====== -->
+<h2 id="s7">七、优先级</h2>
+
+<h3>系统安全优先级（从高到低）</h3>
+<div class="card">
+<ol>
+  <li><span class="badge badge-danger">P1</span> <strong>过温关机</strong> — 立即 poweroff()</li>
+  <li><span class="badge badge-danger">P2</span> <strong>电池耗尽</strong> — 立即 poweroff()</li>
+  <li><span class="badge badge-danger">P3</span> <strong>电机错误</strong> — 禁用电机 + 蜂鸣</li>
+  <li><span class="badge badge-danger">P4</span> <strong>不活动超时</strong> — poweroff()</li>
+  <li><span class="badge badge-warn">P5</span> <strong>TOF 避障（围堵/闪避）</strong> — 覆盖 UWB 指令</li>
+  <li><span class="badge badge-warn">P6</span> <strong>蓝牙门控 STOP</strong> — 停车帧</li>
+  <li><span class="badge badge-warn">P7</span> <strong>ADC 超时</strong> — 蜂鸣</li>
+  <li><span class="badge badge-warn">P8</span> <strong>串口超时</strong> — 蜂鸣</li>
+  <li><span class="badge badge-warn">P9</span> <strong>通用超时</strong> — 蜂鸣</li>
+  <li><span class="badge badge-info">P10</span> <strong>温度告警</strong> — 蜂鸣</li>
+  <li><span class="badge badge-info">P11</span> <strong>电池 LVL1</strong> — 快速蜂鸣</li>
+  <li><span class="badge badge-info">P12</span> <strong>电池 LVL2</strong> — 慢速蜂鸣</li>
+  <li><span class="badge badge-info">P13</span> <strong>TOF 减速</strong> — 限制 UWB 距离</li>
+  <li><span class="badge badge-ok">P14</span> <strong>UWB 超时</strong> — 停车</li>
+  <li><span class="badge badge-ok">P15</span> <strong>倒车蜂鸣</strong> — 高音蜂鸣</li>
+</ol>
+</div>
+
+<h3>蜂鸣告警优先级</h3>
+<pre><code>errCode &gt; timeoutFlgADC &gt; timeoutFlgSerial &gt; timeoutFlgGen
+&gt; TEMP_WARNING &gt; BAT_LVL1 &gt; BAT_LVL2 &gt; BEEPS_BACKWARD</code></pre>
+
+<!-- ====== 第八大类 ====== -->
+<h2 id="s8">八、信号板深层逻辑</h2>
+
+<h3>门控状态机</h3>
+<pre><code>          START\n                STOP\n
+┌──────────┐ ────────────> ┌──────────┐
+│ bt_armed │               │ bt_armed │
+│   = 0    │ &lt;──────────── │   = 1    │
+│ LED 灭   │    STOP\n     │ LED 亮   │
+│ 发停车帧  │               │ 发跟随帧  │
+└──────────┘               └──────────┘</code></pre>
+
+<h3>避障叠加算法</h3>
+<div class="card">
+<ul>
+  <li><strong>AVOID_NONE</strong>：正常转发，<code>dist=uwb_dist</code>，<code>angle=-uwb_angle_x10*5</code></li>
+  <li><strong>AVOID_SLOW_DOWN</strong>：保持 UWB 角度，<code>dist=min(uwb_dist, slow_dist)</code></li>
+  <li><strong>AVOID_SHIFT_LEFT/RIGHT</strong>：完全覆盖，使用避障输出</li>
+  <li><strong>AVOID_ROTATE_CW/CCW</strong>：完全覆盖，使用围堵参数</li>
+</ul>
+</div>
+
+<h3>角度增益设计</h3>
+<p>信号板对 UWB 角度做 <code>×5</code> 增益放大。电机板再除以 10 乘以 KP。<br>
+<strong>实际等效增益</strong>：<code>5 × FLW_ANGLE_KP / 10 = 0.5 × FLW_ANGLE_KP</code></p>
+
+<h3>围堵脱困状态机</h3>
+<pre><code>s_turn_flag=0 ──三面围堵──> s_turn_flag=1 (CCW)
+s_turn_flag=1 ──三面围堵──> s_turn_flag=2 (CW)
+s_turn_flag=2 ──三面围堵──> s_turn_flag=1 (CCW) ...
+任何非围堵情况 ──────────> s_turn_flag=0</code></pre>
+
+<h3>周期发送机制</h3>
+<p>信号板以固定 20Hz 发送 $FLW 帧（非事件驱动），停车帧也持续发送，确保电机板不会因超时误判。</p>
+
+<!-- ====== 第九大类 ====== -->
+<h2 id="s9">九、各模块明显漏洞</h2>
+
+<div class="grid-2">
+<div class="card">
+<h4>BLDC_Controller</h4>
+<ul>
+  <li><span class="badge badge-danger">严重</span> z_errCode 在 UWB 模式下强制清零，掩盖真实硬件故障</li>
+  <li><span class="badge badge-warn">中等</span> 弱磁控制无温度补偿</li>
+  <li><span class="badge badge-info">低</span> Simulink 自动代码不可维护</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>Main Loop</h4>
+<ul>
+  <li><span class="badge badge-danger">严重</span> buzzerTimer 32-bit 溢出可能跳过控制周期</li>
+  <li><span class="badge badge-warn">中等</span> inactivity_timeout_counter 无上限保护</li>
+  <li><span class="badge badge-warn">中等</span> 关机条件 speedAvgAbs&lt;20 在堵转时不满足</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>Comms</h4>
+<ul>
+  <li><span class="badge badge-danger">严重</span> errors 数组越界（声明 9 实际 10 个元素）</li>
+  <li><span class="badge badge-warn">中等</span> 无命令注入防护</li>
+  <li><span class="badge badge-info">低</span> 左右参数无原子性保证</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>Control</h4>
+<ul>
+  <li><span class="badge badge-warn">中等</span> 16-bit 定时器 ~65ms 溢出与 PPM 帧周期冲突</li>
+  <li><span class="badge badge-warn">中等</span> Nunchuk 读取 HAL_Delay(3) 阻塞</li>
+  <li><span class="badge badge-info">低</span> 校验和只检查 0 和 0x5FA</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>EEPROM</h4>
+<ul>
+  <li><span class="badge badge-warn">中等</span> Flash 写入期间掉电可能损坏数据</li>
+  <li><span class="badge badge-info">低</span> 无写入次数统计</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>FLW_Follow</h4>
+<ul>
+  <li><span class="badge badge-warn">中等</span> 缓冲区溢出静默丢弃数据</li>
+  <li><span class="badge badge-warn">中等</span> P 控制器无积分项，存在稳态误差</li>
+  <li><span class="badge badge-danger">严重</span> flw_last_rx 初始值 0 导致启动即超时</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>Util</h4>
+<ul>
+  <li><span class="badge badge-warn">中等</span> input_cal_timeout uint16_t 可能溢出</li>
+  <li><span class="badge badge-danger">严重</span> electricBrake() ELECTRIC_BRAKE_THRES 可能除零</li>
+  <li><span class="badge badge-info">低</span> checkInputType 整数除法边界误判</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>Signal Board</h4>
+<ul>
+  <li><span class="badge badge-warn">中等</span> bt_line[16] 缓冲区过小</li>
+  <li><span class="badge badge-warn">中等</span> uart3_send_str 阻塞发送</li>
+  <li><span class="badge badge-danger">严重</span> 避障/UWB 切换无平滑过渡，电机抖动</li>
+  <li><span class="badge badge-warn">中等</span> angle=-uwb_angle_x10*5 可能溢出</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>TOFSense CAN</h4>
+<ul>
+  <li><span class="badge badge-danger">严重</span> s_rx_mask 无超时，像素丢失则永久阻塞</li>
+  <li><span class="badge badge-warn">中等</span> 中断中执行浮点运算</li>
+  <li><span class="badge badge-warn">中等</span> s_zone 并发访问保护不完整</li>
+</ul>
+</div>
+</div>
+
+<!-- ====== 第十大类 ====== -->
+<h2 id="s10">十、模块间配合问题</h2>
+
+<div class="card">
+<table>
+<tr><th>#</th><th>问题</th><th>涉及模块</th><th>严重度</th><th>影响</th></tr>
+<tr>
+  <td>1</td>
+  <td><strong>协议二义性</strong>：$FLW angle_x10 语义不同，信号板 ×5 增益 + 电机板 /10×KP</td>
+  <td>Signal Board ↔ FLW_Follow</td>
+  <td><span class="badge badge-danger">严重</span></td>
+  <td>参数调整需同时修改两端，调试困难</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><strong>超时竞争</strong>：信号板 500ms + 电机板 1000ms，最坏 1500ms 无响应</td>
+  <td>Signal Board ↔ FLW_Follow</td>
+  <td><span class="badge badge-warn">中等</span></td>
+  <td>紧急情况响应延迟</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td><strong>避障与跟随冲突</strong>：避障 dist_cm &lt; TARGET 时电机板全锁止，抵消转向</td>
+  <td>Signal Board ↔ FLW_Follow</td>
+  <td><span class="badge badge-danger">严重</span></td>
+  <td>避障转向失效，车辆原地不动</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td><strong>enable 竞态</strong>：主循环写、中断读，无原子保护</td>
+  <td>Main Loop ↔ BLDC_Controller</td>
+  <td><span class="badge badge-warn">中等</span></td>
+  <td>电机使能状态不一致</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td><strong>Flash 写入不安全</strong>：电机运行时保存参数暂停 CPU</td>
+  <td>Comms ↔ EEPROM</td>
+  <td><span class="badge badge-warn">中等</span></td>
+  <td>电机短暂失控或异响</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td><strong>输入源切换无过渡</strong>：滤波器状态不重置，指令跳变</td>
+  <td>Util ↔ Control</td>
+  <td><span class="badge badge-warn">中等</span></td>
+  <td>车辆突然加速或转向</td>
+</tr>
+<tr>
+  <td>7</td>
+  <td><strong>超时标志复用冲突</strong>：UWB 模式强制清零所有超时标志</td>
+  <td>Main Loop ↔ FLW_Follow</td>
+  <td><span class="badge badge-danger">严重</span></td>
+  <td>硬件故障被静默掩盖</td>
+</tr>
+<tr>
+  <td>8</td>
+  <td><strong>数据新鲜度</strong>：TOF 更新率低于 20Hz 发送率</td>
+  <td>Signal Board ↔ TOFSense</td>
+  <td><span class="badge badge-info">低</span></td>
+  <td>避障决策基于过时数据</td>
+</tr>
+<tr>
+  <td>9</td>
+  <td><strong>全局变量耦合</strong>：pwml/pwmr/enable 多模块直接读写</td>
+  <td>全部模块</td>
+  <td><span class="badge badge-warn">中等</span></td>
+  <td>数据流难追踪，意外修改</td>
+</tr>
+<tr>
+  <td>10</td>
+  <td><strong>中断优先级全为 0</strong>：无优先级区分</td>
+  <td>全部模块</td>
+  <td><span class="badge badge-warn">中等</span></td>
+  <td>关键中断可能被非关键中断延迟</td>
+</tr>
+</table>
+</div>
+
+<hr style="margin:48px 0;border-color:var(--border);">
+<p style="text-align:center;color:var(--text-dim);font-size:12px;">
+  系统代码分析报告 &nbsp;|&nbsp; 基于源码静态分析生成 &nbsp;|&nbsp; 2026-05-22
+</p>
+
+</main>
+</body>
+</html>

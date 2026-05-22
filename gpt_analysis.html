@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>V1.0 代码分析报告</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --panel-2: #eef3f9;
+      --text: #1a2433;
+      --muted: #5a6a80;
+      --line: #d5deea;
+      --accent: #1f4f8f;
+      --accent-2: #2a6bbd;
+      --warn-bg: #fff3dd;
+      --warn-line: #f1c15c;
+      --ok-bg: #eaf5ea;
+      --ok-line: #77b27a;
+      --mono: "Consolas", "SFMono-Regular", "Courier New", monospace;
+      --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+    }
+
+    header {
+      background: #13263f;
+      color: #f7fbff;
+      padding: 32px 24px 24px;
+    }
+
+    .wrap {
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    h1, h2, h3 {
+      margin: 0 0 12px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h1 { font-size: 34px; font-weight: 700; }
+    h2 {
+      margin-top: 36px;
+      padding-top: 8px;
+      font-size: 26px;
+      border-top: 2px solid var(--line);
+    }
+    h3 { font-size: 20px; margin-top: 24px; }
+
+    p, li { font-size: 15px; }
+
+    .lead {
+      max-width: 980px;
+      margin-top: 10px;
+      color: #dbe8f6;
+      font-size: 16px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .chip {
+      display: inline-block;
+      padding: 6px 10px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      font-size: 13px;
+      color: #eef6ff;
+    }
+
+    nav {
+      background: #e7edf6;
+      border-bottom: 1px solid var(--line);
+    }
+
+    nav .wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 14px 24px;
+    }
+
+    nav a {
+      color: var(--accent);
+      text-decoration: none;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #ffffff;
+      border: 1px solid var(--line);
+      font-size: 13px;
+    }
+
+    main {
+      padding: 24px;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .callout, .warning, .success {
+      padding: 14px 16px;
+      border-left: 4px solid;
+      margin: 14px 0;
+    }
+
+    .callout {
+      background: #eef4ff;
+      border-color: #80a7e8;
+    }
+
+    .warning {
+      background: var(--warn-bg);
+      border-color: var(--warn-line);
+    }
+
+    .success {
+      background: var(--ok-bg);
+      border-color: var(--ok-line);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      padding: 16px;
+      background: var(--panel-2);
+    }
+
+    .card h3 {
+      margin-top: 0;
+      font-size: 18px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      vertical-align: top;
+    }
+
+    th {
+      background: #edf3fb;
+      text-align: left;
+      font-weight: 700;
+    }
+
+    code, .mono {
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+
+    pre.diagram {
+      margin: 12px 0 0;
+      padding: 16px;
+      overflow: auto;
+      background: #101823;
+      color: #e8f2ff;
+      border: 1px solid #24374d;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    ul, ol { margin: 10px 0 0 22px; }
+
+    footer {
+      padding: 12px 24px 32px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 1024px) {
+      .grid, .two-col { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 720px) {
+      header, nav .wrap, main, footer { padding-left: 16px; padding-right: 16px; }
+      section { padding: 18px; }
+      h1 { font-size: 28px; }
+      h2 { font-size: 22px; }
+      th, td { font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>V1.0 代码行为分析报告</h1>
+      <p class="lead">
+        本报告按代码执行路径分析整个工程，结论以源码中的控制流、数据流、常量和接口关系为准，不把注释叙述当作结论来源。
+        供应商库、CMSIS、STM32 HAL、USB 库按基础设施模块归类；<span class="mono">Ai-UWB-SDK/Components/HAL/DW/twr_pdoa/lib/*.lib</span>
+        为二进制库，只能分析其输入输出契约，无法看到内部测距/PDoA 算法实现。
+      </p>
+      <div class="meta">
+        <span class="chip">分析范围: 主控主板 + 信号板 + UWB 子系统 + 支撑库</span>
+        <span class="chip">工作目录: <span class="mono">C:\Users\wangke\Desktop\V1.0</span></span>
+        <span class="chip">输出形式: 可直接打开的单文件 HTML</span>
+      </div>
+    </div>
+  </header>
+
+  <nav>
+    <div class="wrap">
+      <a href="#scope">范围与结论</a>
+      <a href="#overview">1. 模块综述</a>
+      <a href="#details">2. 模块细项</a>
+      <a href="#arch">3. 系统架构</a>
+      <a href="#sequence">4. 配合时序</a>
+      <a href="#protection">5. 保护机制</a>
+      <a href="#exceptions">6. 异常处理</a>
+      <a href="#priority">7. 优先级</a>
+      <a href="#signal-board">8. 信号板深层逻辑</a>
+      <a href="#boundary">边界与不可见部分</a>
+    </div>
+  </nav>
+
+  <main class="wrap">
+    <section id="scope">
+      <h2>范围与关键结论</h2>
+      <div class="callout">
+        这不是一个单 MCU 工程，而是一个由 3 套嵌入式系统串起来的跟随控制链路:
+        <span class="mono">BU04 UWB 测量板</span> 负责测量与输出，
+        <span class="mono">signal_board_c8t6</span> 负责仲裁和避障，
+        根目录主工程负责最终电机闭环执行。
+      </div>
+      <div class="grid">
+        <div class="card">
+          <h3>主控主板</h3>
+          <p>STM32F103RC。负责 PWM/ADC/FOC 实时控制、功率保护、主循环调度，以及把 <span class="mono">$FLW</span> 帧转成速度/转向命令。</p>
+        </div>
+        <div class="card">
+          <h3>信号板</h3>
+          <p>STM32F103C8T6。负责蓝牙启停门控、TOFSense 障碍物仲裁、BU04 跟随帧融合，然后重新生成新的 <span class="mono">$FLW</span> 给主板。</p>
+        </div>
+        <div class="card">
+          <h3>UWB 子系统</h3>
+          <p>BU04 / Ai-UWB-SDK。负责 UWB 节点/标签启动、测距/PDoA 输出、AT 配置面和串口输出适配。</p>
+        </div>
+      </div>
+      <h3>核心判断</h3>
+      <ol>
+        <li>当前工程已从通用 hoverboard/BBCAR 固件改造成“UWB 跟随 + 信号板避障叠加 + 电机闭环执行”的三层结构。</li>
+        <li><span class="mono">signal_board_c8t6</span> 不是透传板，而是决策仲裁层。它会把 UWB 原始测量改写成策略化的 <span class="mono">$FLW</span> 指令。</li>
+        <li>主控主板在 UWB 路径中主动清除了部分传统输入保护和 FOC 错误锁存，保留的核心硬保护主要剩下电流斩波、电池/温度断电和接收超时停车。</li>
+        <li><span class="mono">BU04程序</span> 与 <span class="mono">Ai-UWB-SDK</span> 的业务代码基本同构，前者主要多了文档/图片，后者多了 Arduino 示例和调试配置，不是两套不同算法分支。</li>
+      </ol>
+    </section>
+
+    <section id="overview">
+      <h2>1. 模块综述</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>模块</th>
+            <th>代码位置</th>
+            <th>职责综述</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>构建与常量层</td>
+            <td><span class="mono">platformio.ini</span> + <span class="mono">Inc/config.h</span></td>
+            <td>确定主控板编译变体、主时钟/PWM 相关常量、跟随参数、功率与温度阈值、调试串口和功能开关。</td>
+          </tr>
+          <tr>
+            <td>主板启动/主循环</td>
+            <td><span class="mono">Src/main.c</span></td>
+            <td>负责上电初始化、主循环节拍、UWB 命令注入、输入混合后的后级保护以及断电管理。</td>
+          </tr>
+          <tr>
+            <td>UWB 跟随解析层</td>
+            <td><span class="mono">Src/flw_follow.c</span></td>
+            <td>把串口 <span class="mono">$FLW</span> 帧解析成 <span class="mono">uart_speed_cmd</span> / <span class="mono">uart_steer_cmd</span>，并做超时停车。</td>
+          </tr>
+          <tr>
+            <td>输入/安全/持久化总线层</td>
+            <td><span class="mono">Src/util.c</span></td>
+            <td>承接输入类型识别、校准、限幅、滤波、混合、串口 DMA 桥接、侧板处理、保存配置、BBCAR 模式判断。</td>
+          </tr>
+          <tr>
+            <td>外部输入前端</td>
+            <td><span class="mono">Src/control.c</span></td>
+            <td>采集 PPM、PWM、Nunchuk 等人工输入，并维护通用超时标志。</td>
+          </tr>
+          <tr>
+            <td>实时电机控制核心</td>
+            <td><span class="mono">Src/bldc.c</span> + <span class="mono">Src/BLDC_controller*.c</span></td>
+            <td>在 ADC DMA 中断里完成电流采样、硬电流保护、双电机控制器求解与 PWM 输出。</td>
+          </tr>
+          <tr>
+            <td>外设拓扑层</td>
+            <td><span class="mono">Src/setup.c</span></td>
+            <td>建立双定时器 PWM、双 ADC 同步采样、USART DMA 环形接收、时钟和 I/O 拓扑。</td>
+          </tr>
+          <tr>
+            <td>中断调度层</td>
+            <td><span class="mono">Src/stm32f1xx_it.c</span></td>
+            <td>把 SysTick、串口 IDLE、中断回调接入控制链路； Cortex fault 进入死循环。</td>
+          </tr>
+          <tr>
+            <td>串口调试/参数面</td>
+            <td><span class="mono">Src/comms.c</span></td>
+            <td>提供参数表、命令表、监视、保存与 EEPROM 写入接口。</td>
+          </tr>
+          <tr>
+            <td>参数持久化层</td>
+            <td><span class="mono">Src/eeprom.c</span></td>
+            <td>用双页 Flash 模拟 EEPROM，维护页状态、迁移、掉电中断后的恢复。</td>
+          </tr>
+          <tr>
+            <td>本地显示层</td>
+            <td><span class="mono">Src/pcf8574.c</span> + <span class="mono">Src/hd44780.c</span></td>
+            <td>驱动 I2C 扩展与字符 LCD，属于外围 UI，不在当前跟随主路径上。</td>
+          </tr>
+          <tr>
+            <td>信号板主流程</td>
+            <td><span class="mono">signal_board_c8t6/src/main.c</span></td>
+            <td>接收蓝牙 START/STOP、接收 BU04 <span class="mono">$FLW</span>、结合避障结果、周期发送新 <span class="mono">$FLW</span> 到主板。</td>
+          </tr>
+          <tr>
+            <td>信号板避障层</td>
+            <td><span class="mono">signal_board_c8t6/src/tofsense_can.c/.h</span></td>
+            <td>把 64 像素 TOFSense CAN 数据聚合为左/中/右三区，再执行避障状态机。</td>
+          </tr>
+          <tr>
+            <td>UWB 主入口</td>
+            <td><span class="mono">Ai-UWB-SDK/Components/Main/main.c</span></td>
+            <td>决定设备处于配置模式还是工作模式，并按 node/tag、TWR/PDoA 角色跳转。</td>
+          </tr>
+          <tr>
+            <td>UWB 系统参数层</td>
+            <td><span class="mono">Ai-UWB-SDK/Components/APP/Generic.c</span></td>
+            <td>维护系统参数对象、故障计数、NVM 读写和工作模式状态。</td>
+          </tr>
+          <tr>
+            <td>UWB 命令与桥接层</td>
+            <td><span class="mono">Ai-UWB-SDK/Components/APP/cmd.c</span> + <span class="mono">cmd_fn.c</span> + <span class="mono">Generic_cmd.c</span></td>
+            <td>负责 AT 命令解析、参数修改、串口消息队列以及 JSON/TWR 到 <span class="mono">$FLW</span> 的转换桥。</td>
+          </tr>
+          <tr>
+            <td>UWB 输出适配层</td>
+            <td><span class="mono">Ai-UWB-SDK/Components/APP/user_out.c</span></td>
+            <td>把测距/PDoA 结果包装成对下游主板友好的跟随帧输出。</td>
+          </tr>
+          <tr>
+            <td>UWB 板级驱动</td>
+            <td><span class="mono">Ai-UWB-SDK/Components/HAL/*</span></td>
+            <td>提供串口、LED、FLASH、I2C、SPI、USB、OLED、加速度计等硬件驱动。</td>
+          </tr>
+          <tr>
+            <td>DW 芯片驱动层</td>
+            <td><span class="mono">Ai-UWB-SDK/Components/HAL/DW/decadriver/*</span></td>
+            <td>负责 DWM/Decawave 芯片寄存器级访问与底层设备接口。</td>
+          </tr>
+          <tr>
+            <td>UWB 核心测量库</td>
+            <td><span class="mono">Ai-UWB-SDK/Components/HAL/DW/twr_pdoa/lib/*.lib</span></td>
+            <td>封装 TWR/PDoA 主算法，外部源码只看得到调用入口和输出格式，看不到内部实现。</td>
+          </tr>
+          <tr>
+            <td>UWB 诊断工具</td>
+            <td><span class="mono">Ai-UWB-SDK/Tools/*.py</span></td>
+            <td>提供串口实时监控、质量评价、CSV 输出和稳定性阈值检查。</td>
+          </tr>
+          <tr>
+            <td>BU04 打包镜像</td>
+            <td><span class="mono">BU04程序/*</span></td>
+            <td>与 <span class="mono">Ai-UWB-SDK</span> 业务代码基本镜像，附加接线指南、FAQ 和烧录图示。</td>
+          </tr>
+          <tr>
+            <td>供应商基础设施</td>
+            <td><span class="mono">Drivers/*</span>, <span class="mono">CMSIS/*</span>, <span class="mono">STM32 HAL/*</span></td>
+            <td>提供启动文件、寄存器定义、HAL、DSP 和 USB 基础能力，不承载本项目业务决策。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="details">
+      <h2>2. 每个模块的具体职责、判断逻辑、性能指标</h2>
+
+      <h3>2.1 主控主板模块</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>模块</th>
+            <th>具体职责</th>
+            <th>判断逻辑</th>
+            <th>性能指标/状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="mono">platformio.ini</span><br><span class="mono">Inc/config.h</span></td>
+            <td>定义主板编译形态和运行边界，包括电机、电流、温度、电池、UWB 跟随参数。</td>
+            <td>编译期强制 <span class="mono">VARIANT_BBCAR</span>；UWB 跟随参数由宏固定，比如目标距离、迟滞、超时、最大速度/转向。</td>
+            <td>主板 64 MHz；<span class="mono">-O2</span>；PWM 频率 <span class="mono">16000 Hz</span>；<span class="mono">A2BIT_CONV=50</span>；<span class="mono">FLW_TIMEOUT_MS=1000</span>。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Src/main.c</span></td>
+            <td>执行系统初始化、主循环节拍控制、UWB 控制量注入、后级功率/温度/断电处理。</td>
+            <td>
+              主循环以 <span class="mono">buzzerTimer</span> 节拍驱动；每次循环先维护输入与使能，再在 UWB 段执行:
+              <span class="mono">flw_check_timeout()</span>，
+              清 <span class="mono">timeoutFlgADC/Serial/Gen</span>，
+              清左右电机 <span class="mono">z_errCode</span>，
+              强制 <span class="mono">enable=1</span>，
+              把 <span class="mono">uart_steer_cmd</span>/<span class="mono">uart_speed_cmd</span> 注入输入通道。
+              当两者同时为 0 时，主动清空滤波器和斜坡状态，避免残余滑行。
+            </td>
+            <td>主循环目标间隔约 <span class="mono">2 ms</span>（<span class="mono">DELAY_IN_MAIN_LOOP=2</span>，1 ms 对应 16 个 ISR tick）。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Src/flw_follow.c</span></td>
+            <td>解析 <span class="mono">$FLW,&lt;dist_cm&gt;,&lt;angle_x10&gt;,&lt;x_cm&gt;,&lt;y_cm&gt;,&lt;status&gt;</span> 并生成主板所需的速度/转向命令。</td>
+            <td>
+              <span class="mono">status!=1</span> 直接停车；
+              <span class="mono">dist&lt;150</span> 直接停车；
+              角度死区 <span class="mono">30°</span>；
+              <span class="mono">150~165 cm</span> 输出最小前进速度 <span class="mono">80</span>；
+              超出迟滞区后按 <span class="mono">(dist-target-hyst)*3 + 80</span> 增加速度，上限 <span class="mono">100</span>；
+              转向为 <span class="mono">angle_deg*4</span>，上限 <span class="mono">±350</span>；
+              接收超时 <span class="mono">1000 ms</span> 清零。
+            </td>
+            <td>ASCII 行缓冲 80 字节；解析成功才刷新最近接收时间；适合 DMA 分块喂入。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Src/util.c</span></td>
+            <td>这是主板最大的中间层，负责输入校准、类型识别、限幅、滤波、混合、串口 DMA 桥、EEPROM 参数装载、侧板 LED/传感器、BBCAR 模式逻辑。</td>
+            <td>
+              <span class="mono">bbcarDetectDrivingMode()</span> 在启动时用踏板原始值判断模式 1~4；
+              若没有检测到有效踏板组合，则默认进入模式 1，等价于“无踏板，仅 UWB 跟随”。
+              <span class="mono">usart3_rx_check()</span> 基于 DMA 环形缓冲和 IDLE 中断分片调用 <span class="mono">parse_uart_control()</span>。
+              <span class="mono">bbcarLoop()</span> 仍保留，但当前主流程已绕过，不再是主命令源。
+            </td>
+            <td>串口接收采用 DMA 环形缓冲；滤波、斜坡、混合都在主循环里执行；当前它更像“输入/安全/持久化/桥接总线层”，而不是简单工具库。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Src/control.c</span></td>
+            <td>采集 PPM/PWM/Nunchuk 人工输入，并维护通用超时计数和安全中位回退。</td>
+            <td>
+              PPM/PWM 只接受 <span class="mono">900~2100 us</span> 脉宽并夹到 <span class="mono">1000~2000 us</span>；
+              超过 <span class="mono">500 ms</span> 无信号则回退到中位值 <span class="mono">500</span>。
+              Nunchuk 读失败、校验和全 0/全 FF、或通用超时超过阈值时，立即写入静止中位值并转入重连状态。
+            </td>
+            <td>SysTick 1 kHz 维护超时；这一路在当前 UWB 跟随模式下保留代码，但控制权已大幅让位给串口 <span class="mono">$FLW</span>。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Src/bldc.c</span></td>
+            <td>作为实时控制 ISR，负责 ADC 偏置校准、电流采样、电压滤波、蜂鸣器、双电机控制器执行和 PWM 输出。</td>
+            <td>
+              前 <span class="mono">2000</span> 个 DMA 中断只做 ADC 偏置校准；
+              若 <span class="mono">ABS(cur_DC) &gt; I_DC_MAX * A2BIT_CONV</span> 或 <span class="mono">enable==0</span>，直接关闭对应 PWM 输出使能；
+              使用 <span class="mono">OverrunFlag</span> 防重入；
+              仅当 <span class="mono">enable</span> 且左右控制器都无错误时，<span class="mono">enableFin</span> 才传给控制器。
+            </td>
+            <td>ADC DMA 中断频率约 <span class="mono">16 kHz</span>；PWM 分辨率 <span class="mono">2000</span>；每个中断都执行左右两路控制器。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Src/BLDC_controller.c</span><br><span class="mono">Src/BLDC_controller_data.c</span></td>
+            <td>承载自动生成的双电机控制核，包括 FOC/SIN/COM 模式、相电流环、速度环、场弱、相位处理和输出调制。</td>
+            <td>根据输入的控制模式、霍尔、相电流、命令值和参数表计算每相 PWM 占空输出，以及错误码、转速等状态量。</td>
+            <td>被 <span class="mono">bldc.c</span> 在 <span class="mono">16 kHz</span> 中断里驱动；这是真正的实时控制内核。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Src/setup.c</span></td>
+            <td>构建外设拓扑: 双定时器三相 PWM、双 ADC 同步采样、UART DMA、ADC/DMA 中断、I2C 等。</td>
+            <td>
+              USART2/3 RX 都配置成 DMA 环形模式，并启用 IDLE 中断；
+              ADC1/ADC2 使用规则同步采样；
+              左右 PWM 定时器周期都按 <span class="mono">64000000 / 2 / PWM_FREQ</span> 计算。
+            </td>
+            <td>主板系统时钟 64 MHz；USART2/3 均支持 DMA RX；ADC 和 PWM 对齐是整个实时控制性能的基础。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Src/comms.c</span></td>
+            <td>参数注册、命令注册、运行期监看、参数写入和 EEPROM 保存。</td>
+            <td>
+              命令集包含 <span class="mono">GET/HELP/WATCH/SET/INIT/SAVE</span>；
+              用 <span class="mono">command.semaphore</span> 保证命令串行执行；
+              参数表绑定到控制参数、输入参数、运行变量、电池和温度等。
+            </td>
+            <td>最多监看 15 个参数；当前在 UWB 跟随主链中属于调试/维护面，不是实时主路径。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Src/eeprom.c</span></td>
+            <td>以双页 Flash 模拟 EEPROM，保存主板参数。</td>
+            <td>
+              根据 <span class="mono">ERASED / RECEIVE_DATA / VALID_PAGE</span> 三态修复页一致性；
+              页面写满后自动迁移；
+              初始化时能处理写入中断后的半完成状态。
+            </td>
+            <td>典型双页轮转结构；把参数持久化风险从业务层剥离出去。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Src/stm32f1xx_it.c</span></td>
+            <td>连接中断到业务回调。</td>
+            <td>
+              SysTick 转发到 PPM/PWM 超时维护；
+              USART2/3 在检测到 IDLE 时分别调用 <span class="mono">usart2_rx_check()</span> / <span class="mono">usart3_rx_check()</span>；
+              Cortex fault 进入无限循环，没有源码级自恢复逻辑。
+            </td>
+            <td>负责把“中断事件”翻译成“数据可处理”信号；是 DMA 串口主链的一部分。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Src/pcf8574.c</span><br><span class="mono">Src/hd44780.c</span></td>
+            <td>提供 I2C 字符显示外围。</td>
+            <td>不参与当前跟随、避障或电机执行决策。</td>
+            <td>外围 UI，性能要求低。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>2.2 信号板模块</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>模块</th>
+            <th>具体职责</th>
+            <th>判断逻辑</th>
+            <th>性能指标/状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="mono">signal_board_c8t6/src/main.c</span></td>
+            <td>作为仲裁层，接收蓝牙启停、缓存 BU04 <span class="mono">$FLW</span>、读取避障结果，并生成发给主板的最终 <span class="mono">$FLW</span>。</td>
+            <td>
+              蓝牙行解析只承认 <span class="mono">START</span>/<span class="mono">STOP</span>；
+              <span class="mono">bt_armed==0</span> 时无条件发送停车帧；
+              若避障动作是 <span class="mono">SHIFT</span>/<span class="mono">ROTATE</span>，则完全覆盖 UWB 帧；
+              若只是 <span class="mono">SLOW_DOWN</span>，只限制 <span class="mono">dist</span>，保留 UWB 角度；
+              若 UWB 超时，则发送停车帧。
+            </td>
+            <td>72 MHz；USART1/2/3 全部 <span class="mono">115200</span>；CAN <span class="mono">1 Mbps</span>；转发周期 <span class="mono">50 ms</span>（20 Hz）；UWB 新鲜度超时 <span class="mono">500 ms</span>；空闲时 <span class="mono">__WFI()</span>。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">signal_board_c8t6/src/tofsense_can.c/.h</span></td>
+            <td>把 64 个 TOFSense 像素经 CAN 汇聚成左/中/右三区最小距离，再运行避障状态机。</td>
+            <td>
+              只有收齐 64 个像素索引后才刷新三区结果；
+              每区只取 <span class="mono">dis_status==0</span> 且距离最小的像素；
+              进入避障判断前，再要求 <span class="mono">signal_strength &gt; threshold</span> 且 <span class="mono">status != 255</span>。
+              危险阈值 <span class="mono">0.60 m</span>，减速阈值 <span class="mono">1.0 m</span>。
+            </td>
+            <td>
+              状态机输出包含:
+              <span class="mono">NONE</span>、
+              <span class="mono">SLOW_DOWN</span>、
+              <span class="mono">SHIFT_LEFT/RIGHT</span>、
+              <span class="mono">ROTATE_CW/CCW</span>。
+              其中三面围堵通过 <span class="mono">s_turn_flag</span> 交替旋转方向，避免永远只朝一边打方向。
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>2.3 UWB 子系统模块</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>模块</th>
+            <th>具体职责</th>
+            <th>判断逻辑</th>
+            <th>性能指标/状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="mono">Ai-UWB-SDK/Components/Main/main.c</span></td>
+            <td>UWB 固件主入口，决定配置模式/工作模式，以及 node/tag、TWR/PDoA 角色。</td>
+            <td>
+              启动先 <span class="mono">load_bssConfig()</span>；
+              若 <span class="mono">workmode==0</span>，再按 <span class="mono">twr_pdoa_mode</span> 和 <span class="mono">role</span> 进入
+              <span class="mono">node_start()</span>、
+              <span class="mono">tag_start()</span>、
+              <span class="mono">ds_twr_sts_sdc_responder()</span>、
+              <span class="mono">ds_twr_sts_sdc_initiator()</span>；
+              否则停留在配置/命令循环。
+            </td>
+            <td>主循环本身更像“启动路由器”，真正测距频率和时序由底层 UWB 栈决定。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Ai-UWB-SDK/Components/APP/Generic.c</span></td>
+            <td>维护系统参数对象 <span class="mono">sys_para</span>、启动计数、故障计数、默认配置和 Flash NVM 同步。</td>
+            <td>
+              若 NVM 标志位无效则装载默认配置；
+              启动时增加计数；
+              工作模式字段参与后续模式分流；
+              故障统计和参数通过 Flash 保存。
+            </td>
+            <td>承担 UWB 配置持久化；属于系统状态层，不直接决定车辆动作。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Ai-UWB-SDK/Components/APP/cmd.c</span><br><span class="mono">cmd_fn.c</span></td>
+            <td>提供 AT 命令协议解析和功能函数映射。</td>
+            <td>
+              命令表覆盖设备配置、工作模式、UWB 模式、测距参数、跟随开关和跟随参数；
+              例如 <span class="mono">AT+SETFOLLOW</span> / <span class="mono">AT+GETFOLLOW</span> 已接入。
+            </td>
+            <td>命令面丰富，但属于配置/维护链，不在 16 kHz 或 20 Hz 实时路径上。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Ai-UWB-SDK/Components/APP/Generic_cmd.c</span></td>
+            <td>负责串口消息桥接，并在需要时把 TWR JSON 拦截改写成 <span class="mono">$FLW</span>。</td>
+            <td>
+              非 JSON 或非 TWR 负载直接透传；
+              若包含 <span class="mono">"TWR"</span> 且跟随使能，则提取 <span class="mono">D/P/Xcm/Ycm</span> 字段并转换为 <span class="mono">$FLW</span>；
+              状态码按距离分类为 lost / too close / too far / follow。
+            </td>
+            <td>纯字符串解析桥；适合作为二进制库输出与下游车控之间的兼容层。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Ai-UWB-SDK/Components/APP/user_out.c</span></td>
+            <td>把 PDOA/TWR 结果输出给外部系统，是 UWB 跟随模式的直接可见出口。</td>
+            <td>
+              <span class="mono">node_pdoa_output_user()</span> 总是调用 <span class="mono">follow_mode_output()</span>；
+              后者每 <span class="mono">output_rate_div</span> 帧输出一次；
+              按 <span class="mono">dist<=0</span>、<span class="mono">&lt;50 cm</span>、<span class="mono">&gt;500 cm</span>、其余跟随，决定状态码。
+              重要的是: 当前输出路径只真正使用了 <span class="mono">enable</span>、<span class="mono">stop_dist_cm</span>、<span class="mono">max_dist_cm</span>、<span class="mono">output_rate_div</span>。
+              <span class="mono">target_dist_cm</span>、<span class="mono">speed_kp</span>、<span class="mono">steer_kp</span>、<span class="mono">max_speed</span>、<span class="mono">max_steer</span>、<span class="mono">dead_zone_cm</span> 在当前源码可见输出链里没有实际参与控制计算。
+            </td>
+            <td>输出为 ASCII <span class="mono">$FLW</span> 帧；速率取决于测量帧频和 <span class="mono">output_rate_div</span>。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Ai-UWB-SDK/Components/HAL/*</span><br><span class="mono">.../decadriver/*</span></td>
+            <td>提供 UWB 板的 USART、LED、FLASH、I2C、SPI、USB、OLED、LIS2DH12、DW 芯片寄存器级访问等驱动。</td>
+            <td>这些模块不做业务决策，主要负责把测量栈和命令栈落到硬件外设上。</td>
+            <td>它们是 UWB 子系统能跑起来的基础层。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Ai-UWB-SDK/Components/HAL/DW/twr_pdoa/lib/*.lib</span></td>
+            <td>承载真实 TWR/PDoA 核心算法。</td>
+            <td>源码不可见，只能从外部接口看出它会产出距离、角度、坐标和 JSON/TWR 或结果结构体。</td>
+            <td>性能、滤波、收敛细节对外不可见；这里只能做边界分析。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Ai-UWB-SDK/Tools/realtime_monitor.py</span><br><span class="mono">data_quality_check.py</span></td>
+            <td>提供串口监控、可视化和质量评估。</td>
+            <td>
+              质量检查脚本按代码给出合格阈值:
+              距离标准差 <span class="mono">&lt; 30 cm</span>，
+              角度标准差 <span class="mono">&lt; 15°</span>，
+              更新率 <span class="mono">&gt; 5 Hz</span>，
+              丢包率 <span class="mono">&lt; 10%</span>。
+            </td>
+            <td>这些是源码可见的验收指标，不是实时闭环参数，但体现了系统对 UWB 链路质量的最低要求。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">BU04程序/*</span></td>
+            <td>作为 Ai-UWB-SDK 的镜像打包版本，附带烧录文档、图片和接线材料。</td>
+            <td>逻辑代码基本同源；业务链路并没有出现另一套独立控制逻辑。</td>
+            <td>可视为发布/交付目录，而不是新控制内核。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>2.4 基础设施与非业务目录</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>模块</th>
+            <th>职责</th>
+            <th>对业务的作用</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="mono">Drivers/STM32F1xx_HAL_Driver/*</span></td>
+            <td>HAL 外设驱动和 LL 封装。</td>
+            <td>为主板和部分子工程提供统一外设接口，不承载跟随/避障策略。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Drivers/CMSIS/*</span></td>
+            <td>内核启动、DSP、寄存器头文件、数学库。</td>
+            <td>为控制器、启动文件、数值计算提供底座。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">Projects/USER/Output/*</span>, <span class="mono">*.csv</span>, 文档和图片</td>
+            <td>编译输出、调试文件、历史采样数据、文档说明。</td>
+            <td>不参与运行期控制，但可用于复盘和交付。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="arch">
+      <h2>3. 系统架构</h2>
+      <div class="callout">
+        整体是“测量层 -> 仲裁层 -> 执行层”的三级结构，数据主线采用 <span class="mono">$FLW</span> 协议贯穿。
+      </div>
+      <pre class="diagram">[HC-04 / BU03 蓝牙 START/STOP]
+              |
+              v
+      [Signal Board USART1]
+
+[BU04 UWB 测量板] --$FLW/JSON--> [Signal Board USART2]
+                                      |
+[TOFSense 64 像素 CAN] -------------> [Signal Board 避障仲裁]
+                                      |
+                                      | 重新生成 $FLW
+                                      v
+                             [Motor Mainboard USART3 DMA]
+                                      |
+                                      v
+                              [flw_follow.c 解析]
+                                      |
+                                      v
+                          [main.c 注入 speed/steer]
+                                      |
+                                      v
+                    [util.c 滤波/限幅/混合/配置总线层]
+                                      |
+                                      v
+                   [bldc.c 16kHz ISR + BLDC_controller]
+                                      |
+                                      v
+                            [TIM1/TIM8 PWM -> 双电机]</pre>
+
+      <div class="two-col">
+        <div>
+          <h3>架构分层</h3>
+          <ol>
+            <li><strong>测量层</strong>: BU04 输出距离、角度、坐标或 TWR JSON。</li>
+            <li><strong>仲裁层</strong>: 信号板根据蓝牙门控和 TOF 避障把“测量”改写成“允许执行的运动意图”。</li>
+            <li><strong>执行层</strong>: 主板把 <span class="mono">$FLW</span> 转成速度/转向，再由 FOC 实时闭环驱动电机。</li>
+          </ol>
+        </div>
+        <div>
+          <h3>数据契约</h3>
+          <p><span class="mono">$FLW,dist_cm,angle_x10,x_cm,y_cm,status</span></p>
+          <ul>
+            <li><span class="mono">dist_cm</span>: 在 UWB 原始链路里是目标距离；进入信号板后，也可能被改写成“希望主板形成的速度包络”。</li>
+            <li><span class="mono">angle_x10</span>: 目标角度；进入信号板后可能被直接替换成避障转向命令。</li>
+            <li><span class="mono">status</span>: <span class="mono">0/1/2/3</span> 分别对应太近停车、允许跟随、太远停车、目标丢失。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="warning">
+        这个系统最关键的架构特征是: 主板已经不再把 UWB 帧当成纯感知数据，而是当成最高优先级的外部控制源之一。
+        信号板进一步把避障结果写进同一套 <span class="mono">$FLW</span> 字段，形成“感知与策略同帧承载”的结构。
+      </div>
+    </section>
+
+    <section id="sequence">
+      <h2>4. 各个模块的配合时序</h2>
+
+      <h3>4.1 上电时序</h3>
+      <ol>
+        <li>主控主板启动，完成 HAL、时钟、GPIO、TIM、ADC、UART 初始化，随后执行 <span class="mono">BLDC_Init()</span>、输入初始化、ADC 启动和上电提示。</li>
+        <li>主板启动后执行模式检测。若踏板不在定义好的最小/最大组合，代码会落到默认模式 1，这实际上就是为“无踏板 + UWB 跟随”场景准备的入口。</li>
+        <li>信号板启动，配置 72 MHz 时钟、3 路 UART 和 1 路 CAN，蓝牙默认未 armed，LED 熄灭。</li>
+        <li>UWB 板启动，读取 NVM 配置，按 <span class="mono">workmode</span>、<span class="mono">role</span>、<span class="mono">twr_pdoa_mode</span> 进入配置模式或测量模式。</li>
+        <li>一旦 UWB 测量开始，BU04 持续向信号板输出 <span class="mono">$FLW</span> 或 TWR JSON，再由信号板整理后发给主板。</li>
+      </ol>
+
+      <h3>4.2 运行闭环时序</h3>
+      <ol>
+        <li>BU04 产生距离/角度/坐标结果，UWB 输出层把结果组装成 <span class="mono">$FLW</span> 帧或通过桥接层从 JSON 转成 <span class="mono">$FLW</span>。</li>
+        <li>信号板 USART2 字节流解析器缓存最近一帧 UWB 数据和时间戳。</li>
+        <li>TOFSense 经 CAN 连续送来 64 个像素帧；信号板只有在收齐 64 个像素后，才刷新一次左/中/右三区结果。</li>
+        <li>信号板运行避障状态机，得出 <span class="mono">NONE / SLOW_DOWN / SHIFT / ROTATE</span> 之一。</li>
+        <li>每 <span class="mono">50 ms</span>，信号板按照“蓝牙门控 -> 避障覆盖 -> UWB 新鲜度 -> 停车”顺序发一帧新的 <span class="mono">$FLW</span> 给主板。</li>
+        <li>主板 USART3 通过 DMA 环形缓冲接收，IDLE 中断触发 <span class="mono">usart3_rx_check()</span>，再喂给 <span class="mono">parse_uart_control()</span>。</li>
+        <li><span class="mono">flw_follow.c</span> 解析完整行并更新 <span class="mono">uart_speed_cmd</span> / <span class="mono">uart_steer_cmd</span>。</li>
+        <li>主板主循环约每 <span class="mono">2 ms</span> 执行一次，把 UWB 命令注入输入通道、做滤波/斜坡/混合，并继续检查温度、电池和断电逻辑。</li>
+        <li><span class="mono">bldc.c</span> 在约 <span class="mono">16 kHz</span> 的 ADC DMA 中断中执行电流采样、硬电流保护、控制器求解和 PWM 更新。</li>
+        <li>如果任何高优先级保护触发，例如电流斩波、电池/温度断电、蓝牙未 armed 或主板接收超时，车辆进入停车或断电状态。</li>
+      </ol>
+    </section>
+
+    <section id="protection">
+      <h2>5. 各个模块的保护机制</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>层级</th>
+            <th>保护机制</th>
+            <th>触发条件</th>
+            <th>效果</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>主板 <span class="mono">flw_follow.c</span></td>
+            <td><span class="mono">$FLW</span> 接收超时停车</td>
+            <td>最近有效帧年龄超过 <span class="mono">1000 ms</span></td>
+            <td>速度和转向命令清零。</td>
+          </tr>
+          <tr>
+            <td>主板 <span class="mono">flw_follow.c</span></td>
+            <td>状态码停车</td>
+            <td><span class="mono">status != 1</span></td>
+            <td>立即停车，不保留转向。</td>
+          </tr>
+          <tr>
+            <td>主板 <span class="mono">bldc.c</span></td>
+            <td>DC-Link 电流斩波</td>
+            <td><span class="mono">ABS(cur_DC) &gt; I_DC_MAX * A2BIT_CONV</span> 或 <span class="mono">enable==0</span></td>
+            <td>直接关闭对应电机 PWM 主输出使能，是最底层、最快的硬保护之一。</td>
+          </tr>
+          <tr>
+            <td>主板 <span class="mono">main.c</span></td>
+            <td>电池/温度断电</td>
+            <td>电压过低、温度过高等后级条件满足</td>
+            <td>执行断电/蜂鸣告警，属于整机级保护。</td>
+          </tr>
+          <tr>
+            <td>主板 <span class="mono">main.c</span></td>
+            <td>无动作超时</td>
+            <td>长时间无有效活动</td>
+            <td>触发关机流程，防止长期待机耗电。</td>
+          </tr>
+          <tr>
+            <td>信号板 <span class="mono">main.c</span></td>
+            <td>蓝牙 armed 门控</td>
+            <td>未收到 <span class="mono">START</span> 或收到 <span class="mono">STOP</span></td>
+            <td>无条件输出停车帧 <span class="mono">$FLW,0,0,0,0,3</span>。</td>
+          </tr>
+          <tr>
+            <td>信号板 <span class="mono">main.c</span></td>
+            <td>UWB 新鲜度保护</td>
+            <td>最近 BU04 帧超过 <span class="mono">500 ms</span></td>
+            <td>停止转发跟随，改发停车帧。</td>
+          </tr>
+          <tr>
+            <td>信号板 <span class="mono">tofsense_can.c</span></td>
+            <td>障碍物有效性过滤</td>
+            <td>只有像素状态有效、RSSI 超阈值、64 像素帧齐全时才参与仲裁</td>
+            <td>降低单点噪声和不完整帧直接影响控制的风险。</td>
+          </tr>
+          <tr>
+            <td>信号板 <span class="mono">tofsense_can.c</span></td>
+            <td>多级避障</td>
+            <td>危险距离 <span class="mono">&lt; 0.60 m</span> 或减速距离 <span class="mono">&lt; 1.0 m</span></td>
+            <td>分别触发硬覆盖避障或减速包络。</td>
+          </tr>
+          <tr>
+            <td>UWB <span class="mono">user_out.c</span></td>
+            <td>距离状态分类</td>
+            <td>距离无效、过近、过远</td>
+            <td>输出 <span class="mono">status=3/0/2</span>，通知下游停车。</td>
+          </tr>
+          <tr>
+            <td>UWB <span class="mono">cmd_fn.c</span>/<span class="mono">user_out.c</span></td>
+            <td>参数夹紧</td>
+            <td>设置过大最大速度/转向</td>
+            <td>夹到 <span class="mono">HOVER_SPEED_MAX</span> / <span class="mono">HOVER_STEER_MAX</span>。</td>
+          </tr>
+          <tr>
+            <td>UWB <span class="mono">stm32f10x_it.c</span></td>
+            <td>看门狗喂狗 + 故障计数</td>
+            <td>TIM2 周期中断 / Cortex fault</td>
+            <td>正常时维持存活，故障时记录计数、写 NVM、复位。</td>
+          </tr>
+          <tr>
+            <td>主板 <span class="mono">eeprom.c</span></td>
+            <td>持久化页一致性修复</td>
+            <td>掉电写入中断、页状态异常</td>
+            <td>通过双页状态机恢复可读写状态。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="warning">
+        <strong>最重要的保护结论:</strong>
+        主板原本存在的 <span class="mono">timeoutFlgADC</span>、<span class="mono">timeoutFlgSerial</span>、<span class="mono">timeoutFlgGen</span>、
+        以及左右控制器 <span class="mono">z_errCode</span>，在 UWB 注入段被主动清零或压制。
+        这意味着主板在当前跟随模式下，是有意把传统输入链的若干保护让位给 UWB 跟随链路的。
+        当前真正始终在线的硬保护主要是:
+        <span class="mono">$FLW</span> 超时停车、
+        电流斩波、
+        电池/温度断电、
+        整机无动作超时。
+      </div>
+    </section>
+
+    <section id="exceptions">
+      <h2>6. 各个模块的异常处理方式</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>模块</th>
+            <th>异常类型</th>
+            <th>处理方式</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>主板 <span class="mono">flw_follow.c</span></td>
+            <td>串口行格式非法、字段不全</td>
+            <td>该行不更新控制命令和时间戳；继续等待下一条有效行；若长期收不到有效帧，则靠超时机制停车。</td>
+          </tr>
+          <tr>
+            <td>主板 <span class="mono">flw_follow.c</span></td>
+            <td>接收缓冲溢出</td>
+            <td>行索引清零，丢弃当前不完整行，避免错误数据继续污染状态。</td>
+          </tr>
+          <tr>
+            <td>主板 <span class="mono">control.c</span></td>
+            <td>PPM/PWM 丢失</td>
+            <td>超过 500 ms 后回到中位值。</td>
+          </tr>
+          <tr>
+            <td>主板 <span class="mono">control.c</span></td>
+            <td>Nunchuk 通讯错误或超时</td>
+            <td>写入静止中位、拉起 <span class="mono">timeoutFlgGen</span>、进入重连状态机。</td>
+          </tr>
+          <tr>
+            <td>主板 <span class="mono">bldc.c</span></td>
+            <td>ISR 重入</td>
+            <td>由 <span class="mono">OverrunFlag</span> 直接放弃本次重入执行，保证控制器状态不被并发破坏。</td>
+          </tr>
+          <tr>
+            <td>主板 <span class="mono">stm32f1xx_it.c</span></td>
+            <td>HardFault / MemManage / BusFault / UsageFault</td>
+            <td>进入无限循环，没有可见的自动恢复、持久化或重启策略。</td>
+          </tr>
+          <tr>
+            <td>信号板 <span class="mono">main.c</span></td>
+            <td>蓝牙命令非法</td>
+            <td>既不 armed 也不 disarm，直接忽略；只有完整的 <span class="mono">START</span>/<span class="mono">STOP</span> 才改变状态。</td>
+          </tr>
+          <tr>
+            <td>信号板 <span class="mono">main.c</span></td>
+            <td>UWB 行格式非法</td>
+            <td>不更新缓存帧；若持续无新鲜帧，500 ms 后进入停车。</td>
+          </tr>
+          <tr>
+            <td>信号板 <span class="mono">tofsense_can.c</span></td>
+            <td>TOF 像素帧不完整</td>
+            <td>不刷新三区结果；系统继续沿用上一帧已确认区域状态。</td>
+          </tr>
+          <tr>
+            <td>信号板 <span class="mono">tofsense_can.c</span></td>
+            <td>低信号/无效状态像素</td>
+            <td>不纳入危险判断，降低虚警。</td>
+          </tr>
+          <tr>
+            <td>UWB <span class="mono">Generic_cmd.c</span></td>
+            <td>非 TWR / 非 JSON 负载</td>
+            <td>直接透传，不做 <span class="mono">$FLW</span> 转换。</td>
+          </tr>
+          <tr>
+            <td>UWB <span class="mono">stm32f10x_it.c</span></td>
+            <td>HardFault / MemManage / BusFault / UsageFault</td>
+            <td>增加故障计数、写入 NVM，然后在循环里调用 <span class="mono">NVIC_SystemReset()</span> 复位 MCU。</td>
+          </tr>
+          <tr>
+            <td>主板 <span class="mono">eeprom.c</span></td>
+            <td>Flash 页半写入/异常状态</td>
+            <td>启动时根据页状态机做恢复、迁移、重新标记有效页。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        异常处理风格很明显分成两类:
+        主板更偏“能停就停、能卡死就卡死，不做复杂恢复”；
+        UWB 板更偏“记录故障后立即复位”；
+        信号板则偏“超时回退到停车输出”。
+      </div>
+    </section>
+
+    <section id="priority">
+      <h2>7. 优先级</h2>
+
+      <h3>7.1 控制权优先级</h3>
+      <ol>
+        <li><strong>主板底层硬保护最高</strong>: 电流斩波、电池/温度断电一旦触发，直接压过一切上游命令。</li>
+        <li><strong>信号板蓝牙门控次高</strong>: 未 armed 时，无论 UWB 和 TOF 给出什么，最终都是停车帧。</li>
+        <li><strong>信号板硬避障高于 UWB 跟随</strong>: <span class="mono">SHIFT</span>/<span class="mono">ROTATE</span> 直接覆盖 UWB 距离和角度。</li>
+        <li><strong>信号板减速策略高于纯 UWB</strong>: <span class="mono">SLOW_DOWN</span> 会限制距离包络，从而限制主板生成的速度。</li>
+        <li><strong>UWB 跟随高于本地主动输入</strong>: 主板当前主流程里，串口 <span class="mono">$FLW</span> 已经覆盖了原本的踏板控制权。</li>
+        <li><strong>传统 ADC/PPM/PWM/通用超时保护已降级</strong>: 在 UWB 注入段被清零，不再是最终裁决者。</li>
+      </ol>
+
+      <h3>7.2 时间调度优先级</h3>
+      <ol>
+        <li><span class="mono">DMA1_Channel1_IRQHandler</span> 约 <span class="mono">16 kHz</span>，是真正最高频、最高实时性的执行层。</li>
+        <li>主板主循环约 <span class="mono">2 ms</span> 一次，负责把上游指令转成控制器输入。</li>
+        <li>信号板每 <span class="mono">50 ms</span> 输出一次新的决策帧，形成 20 Hz 的仲裁层。</li>
+        <li>信号板调试输出约 <span class="mono">500 ms</span> 一次，只用于观察。</li>
+        <li>UWB 输出频率由底层测量栈决定；源码可见的工具阈值要求至少高于 <span class="mono">5 Hz</span>。</li>
+      </ol>
+
+      <h3>7.3 超时链路优先级</h3>
+      <ul>
+        <li>信号板先用 <span class="mono">500 ms</span> 判断 BU04 掉线。</li>
+        <li>主板再用 <span class="mono">1000 ms</span> 判断上游 <span class="mono">$FLW</span> 掉线。</li>
+        <li>因此系统实际上是“双层超时停车”，且信号板先断，主板后兜底。</li>
+      </ul>
+    </section>
+
+    <section id="signal-board">
+      <h2>8. 信号板的深层逻辑</h2>
+      <div class="success">
+        <strong>一句话结论:</strong>
+        信号板不是在“转发 UWB 数据”，而是在把 UWB 测量、蓝牙启停和 TOF 避障融合成一套新的、具有策略含义的 <span class="mono">$FLW</span> 控制语义。
+      </div>
+
+      <h3>8.1 它改变了 <span class="mono">$FLW</span> 的语义</h3>
+      <ul>
+        <li>在 BU04 输出里，<span class="mono">dist_cm</span> 和 <span class="mono">angle_x10</span> 更接近“真实测量量”。</li>
+        <li>进入信号板后，这两个字段会被改写成“想让主板产生怎样的速度和转向”。</li>
+        <li>特别是 <span class="mono">shift_dist=180</span>、<span class="mono">rotate_dist=130</span>、<span class="mono">slow_dist=200</span>，并不是障碍物真实距离，而是发给主板的策略化距离值。</li>
+        <li>因为主板的 <span class="mono">flw_follow.c</span> 是按 <span class="mono">dist-target</span> 算速度，所以信号板其实是在“借用距离字段远程调速”。</li>
+      </ul>
+
+      <h3>8.2 它做了显式的坐标系/增益变换</h3>
+      <ul>
+        <li>普通跟随时，信号板不是原样转发角度，而是输出 <span class="mono">angle = -uwb_angle_x10 * 5</span>。</li>
+        <li>这说明信号板同时做了<strong>符号翻转</strong>和<strong>5 倍增益放大</strong>，用来适配主板那一套转向控制尺度。</li>
+        <li>这不是被动中继，而是主动坐标/增益适配层。</li>
+      </ul>
+
+      <h3>8.3 它把避障动作编码成主板能理解的运动意图</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>信号板动作</th>
+            <th>发送给主板的方式</th>
+            <th>主板最终感知到的含义</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="mono">AVOID_SHIFT_LEFT/RIGHT</span></td>
+            <td>直接覆盖 <span class="mono">dist_cm</span> 和 <span class="mono">angle_x10</span>，并发送 <span class="mono">status=1</span></td>
+            <td>继续跟随，但目标角度和距离被替换成“绕障转向 + 仍然前进”。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">AVOID_ROTATE_CW/CCW</span></td>
+            <td>同样直接覆盖距离和角度，发送 <span class="mono">status=1</span></td>
+            <td>主板会把它当成合法跟随目标，执行脱困转向/极慢前进。</td>
+          </tr>
+          <tr>
+            <td><span class="mono">AVOID_SLOW_DOWN</span></td>
+            <td>保留 UWB 角度，只把 <span class="mono">dist_cm</span> 上限压到 <span class="mono">slow_dist=200</span></td>
+            <td>主板继续朝目标转向，但速度被压低。</td>
+          </tr>
+          <tr>
+            <td>未 armed / UWB 超时</td>
+            <td>发送 <span class="mono">$FLW,0,0,0,0,3</span></td>
+            <td>主板直接停车。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>8.4 它有明显的方向偏置</h3>
+      <ul>
+        <li>当 <span class="mono">right + middle</span> 危险时，动作是 <strong>左移</strong>。</li>
+        <li>当 <span class="mono">middle</span> 单独危险时，动作仍然是 <strong>左移</strong>。</li>
+        <li>当 <span class="mono">right + left</span> 同时危险时，代码仍然选择 <strong>左移</strong>。</li>
+        <li>只有 <span class="mono">left</span> 单独危险，或 <span class="mono">middle + left</span> 危险时，才选择 <strong>右移</strong>。</li>
+      </ul>
+      <div class="callout">
+        这说明信号板状态机存在<strong>默认左优先</strong>的避障偏置，而不是完全对称的左右决策器。
+        换句话说，系统把“左侧”当成更常见、更优先的逃逸方向，除非左侧本身已经构成主要障碍。
+      </div>
+
+      <h3>8.5 三面围堵时的脱困逻辑不是停车，而是交替旋转</h3>
+      <ul>
+        <li>若左/中/右三侧都进入危险距离，信号板不会停车等待，而是进入旋转脱困。</li>
+        <li>它用 <span class="mono">s_turn_flag</span> 在 <span class="mono">ROTATE_CCW</span> 和 <span class="mono">ROTATE_CW</span> 之间交替，避免持续朝一侧死打方向。</li>
+        <li>这说明它的设计目标不是“最保守停车”，而是“尽量不断链地脱困并继续跟随”。</li>
+      </ul>
+
+      <h3>8.6 它与主板参数存在强耦合</h3>
+      <ul>
+        <li>主板目标距离是 <span class="mono">150 cm</span>，信号板减速距离设置为 <span class="mono">200 cm</span>。</li>
+        <li>这不是随意的数值。如果 <span class="mono">slow_dist</span> 小于或等于主板目标距离，主板会把它解读成“过近停车”，而不是“减速跟随”。</li>
+        <li>因此信号板的 <span class="mono">180 / 130 / 200</span> 等数值，本质上是根据主板下游控制律反推出来的策略编码值。</li>
+      </ul>
+
+      <h3>8.7 深层本质</h3>
+      <pre class="diagram">UWB 原始目标位置
+        -> 信号板缓存
+        -> TOF 64 像素聚合为三区风险
+        -> 蓝牙 armed 判断
+        -> 风险状态机决定是否改写 dist/angle/status
+        -> 发送“合成后的虚拟跟随目标”
+        -> 主板按普通跟随逻辑执行
+
+结果: 主板无法区分“这帧是目标真实位置”还是“信号板为了避障而伪造的目标位置”。</pre>
+      <p>
+        这就是信号板的最深层逻辑: 它把原始感知数据变成了策略化控制语义。
+        从系统设计角度看，信号板是整个工程里真正的“行为仲裁器”。
+      </p>
+    </section>
+
+    <section id="boundary">
+      <h2>边界与不可见部分</h2>
+      <ul>
+        <li><span class="mono">Ai-UWB-SDK/Components/HAL/DW/twr_pdoa/lib/*.lib</span> 是二进制库。能看到的是入口函数、输出字段和外围桥接代码，看不到内部测距滤波、PDoA 求解和鲁棒性策略。</li>
+        <li><span class="mono">Drivers/*</span>、<span class="mono">CMSIS/*</span>、USB 基础库文件数量很大，但它们属于供应商基础设施，不承载本项目特有的跟随/避障决策，因此按模块族归类更有分析价值。</li>
+        <li><span class="mono">BU04程序</span> 与 <span class="mono">Ai-UWB-SDK</span> 的业务代码主体一致；它更多是发布和交付形态，而不是另一套运行时架构。</li>
+      </ul>
+      <div class="warning">
+        如果后续要继续深入，最值得追的不是 HAL，而是两件事:
+        一是主板 UWB 注入段为什么要主动清掉若干保护标志；
+        二是信号板避障策略中“左优先偏置”和“用虚拟距离调速”的设计是否符合实际场地需求。
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    生成说明: 该报告按源码行为整理，已避免把注释叙述当成分析依据；HTML 为静态单文件，可直接本地浏览器打开。
+  </footer>
+</body>
+</html>
