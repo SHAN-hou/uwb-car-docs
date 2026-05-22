@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>避障+跟随 当前问题清单</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif; background:#0f172a; color:#e2e8f0; line-height:1.7; padding:20px 0; }
+  .wrap { max-width:800px; width:92%; margin:0 auto; }
+  h1 { font-size:22px; text-align:center; margin-bottom:6px; color:#fff; }
+  .sub { text-align:center; color:#94a3b8; font-size:13px; margin-bottom:24px; }
+  h2 { font-size:18px; color:#38bdf8; margin:30px 0 12px; padding-bottom:6px; border-bottom:1px solid #334155; }
+  h3 { font-size:15px; color:#fbbf24; margin:16px 0 6px; }
+  .card { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:14px 16px; margin-bottom:16px; }
+  .sev { display:inline-block; padding:2px 8px; border-radius:6px; font-size:10px; font-weight:700; margin-right:6px; }
+  .s-critical { background:rgba(248,113,113,.2); color:#f87171; }
+  .s-high { background:rgba(251,191,36,.2); color:#fbbf24; }
+  .s-medium { background:rgba(56,189,248,.2); color:#38bdf8; }
+  .s-low { background:rgba(148,163,184,.2); color:#94a3b8; }
+  .card-title { font-size:15px; font-weight:700; color:#fff; margin-bottom:6px; }
+  p { font-size:13px; margin:4px 0; color:#cbd5e1; }
+  code { background:#0f172a; padding:2px 5px; border-radius:3px; font-size:11px; color:#7dd3fc; border:1px solid #334155; }
+  pre { background:#0f172a; padding:10px; border-radius:6px; font-size:11px; color:#cbd5e1; border:1px solid #334155; margin:8px 0; overflow-x:auto; }
+  ul { margin:6px 0 6px 18px; font-size:13px; color:#cbd5e1; }
+  li { margin:3px 0; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:12px; background:#1e293b; border-radius:6px; overflow:hidden; }
+  th, td { padding:7px 10px; border:1px solid #334155; text-align:left; }
+  th { background:#0f172a; color:#38bdf8; }
+  .fix { background:#0f2a1e; border:1px solid #34d399; border-radius:6px; padding:10px 12px; margin:8px 0; }
+  .fix-title { font-size:12px; font-weight:700; color:#34d399; margin-bottom:4px; }
+  .back { display:inline-block; color:#38bdf8; text-decoration:none; font-size:13px; margin-bottom:16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">← 返回首页</a>
+<h1>避障+跟随 问题清单</h1>
+<p class="sub">按严重程度排列 · 全部位于信号板代码中</p>
+
+<!-- ==================== 跟随问题 ==================== -->
+<h2>一、UWB跟随问题</h2>
+
+<div class="card">
+<div class="card-title"><span class="sev s-critical">致命</span>P1 · 角度方向完全相反</div>
+<p><strong>位置</strong>：<code>main.c:328</code></p>
+<pre>int angle = -uwb_angle_x10 * 5;  /* 取反×5 增益 */</pre>
+<p><strong>现象</strong>：目标在右边，车向左跑，越跑越远</p>
+<p><strong>原因</strong>：负号把方向反了。UWB报+150(右偏15°) → 信号板输出-750 → 电机板算出左转</p>
+<div class="fix">
+<div class="fix-title">修复</div>
+<pre>int angle = uwb_angle_x10 * 5;   /* 去掉负号 */</pre>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="sev s-high">严重</span>P2 · UWB数据无滤波，跳变直接放大</div>
+<p><strong>位置</strong>：<code>main.c:328</code> + <code>flw_feed_byte()</code></p>
+<p><strong>现象</strong>：车行驶抖动/突然转向/走S形</p>
+<p><strong>原因</strong>：BU04 的 angle_x10 帧间跳变可达 ±50（5°），经×5放大后变成 ±250，占电机板量程的25%。无任何平滑。</p>
+<pre>
+示例：连续3帧UWB角度: 120, 170, 130 (正常波动±5°)
+经×5后: 600, 850, 650 → 帧间跳250，电机板直接响应 → 车抖
+</pre>
+<div class="fix">
+<div class="fix-title">修复方案</div>
+<p>在 <code>build_avoid_frame</code> 前对 <code>flw_angle_x10</code> 做一阶低通滤波：</p>
+<pre>static int angle_filtered = 0;
+angle_filtered = angle_filtered * 7/8 + uwb_angle_x10 * 1/8;
+int angle = angle_filtered * 5;</pre>
+<p>也可用3点中值滤波消除尖刺后再乘增益。</p>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="sev s-high">严重</span>P3 · UWB距离跳变导致急加急停</div>
+<p><strong>位置</strong>：<code>build_avoid_frame()</code> → <code>dist = uwb_dist</code></p>
+<p><strong>现象</strong>：车突然加速然后急刹</p>
+<p><strong>原因</strong>：UWB dist偶尔跳变（遮挡/多径），如突然从300跳到600再回300。电机板 speed=(dist-150)×3，所以600→speed=1350(被限到MAX)，下帧300→speed=450，瞬间急刹。</p>
+<div class="fix">
+<div class="fix-title">修复方案</div>
+<p>对 dist 做限幅+缓变：</p>
+<pre>static int dist_filtered = 0;
+int delta = uwb_dist - dist_filtered;
+if (delta > 50) delta = 50;      // 每帧最多追50cm
+if (delta < -80) delta = -80;    // 刹车可以快一点
+dist_filtered += delta;</pre>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="sev s-medium">中等</span>P4 · ×5增益 + 电机板30°死区配合不当</div>
+<p><strong>位置</strong>：信号板 <code>×5</code> + 电机板 <code>FLW_ANGLE_DEADZONE_DEG=30</code></p>
+<p><strong>现象</strong>：小角度不修正（跑偏），大角度过冲（画圈）</p>
+<p><strong>原因</strong>：信号板 ×5 后电机板 ÷10 → 有效增益=×0.5。电机板30°死区换算回原始UWB = 6°才开始修正。6°内完全不管 → 跑偏。一旦超过6°，乘以KP=4突然出力 → 过冲。</p>
+<div class="fix">
+<div class="fix-title">修复方案</div>
+<p>方案A（推荐）：电机板 <code>FLW_ANGLE_DEADZONE_DEG</code> 改为 5°（只改一行 config.h）</p>
+<p>方案B：信号板 ×5 增益改为 ×10，缩小有效死区</p>
+<p>方案C：信号板自己做死区+P控制，发出的angle已经是最终steer值，电机板当纯执行器</p>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="sev s-medium">中等</span>P5 · UWB超时后恢复延迟</div>
+<p><strong>位置</strong>：<code>main.c:421</code> <code>(now - flw_last_ms) <= BU04_TIMEOUT_MS</code></p>
+<p><strong>现象</strong>：STOP再START后要等几秒才动</p>
+<p><strong>原因</strong>：BU04 重新建立跟踪需要时间（首帧延迟1-3秒），期间持续超时发停车帧。用户以为卡了。</p>
+<div class="fix">
+<div class="fix-title">修复方案</div>
+<p>加一个"等待UWB"状态LED闪烁提示。或在bt_armed从0→1时主动发"QUERY"命令给BU04请求快速恢复。</p>
+</div>
+</div>
+
+<!-- ==================== 避障问题 ==================== -->
+<h2>二、TOF避障问题</h2>
+
+<div class="card">
+<div class="card-title"><span class="sev s-critical">致命</span>P6 · 64像素位图无超时，丢1帧CAN永久冻结</div>
+<p><strong>位置</strong>：<code>tofsense_can.c:50-95</code></p>
+<pre>s_rx_mask |= (1ULL << idx);
+if (s_rx_mask == 0xFFFFFFFFFFFFFFFFULL) { ... }</pre>
+<p><strong>现象</strong>：避障突然失灵，或车一直在"闪避"停不下来</p>
+<p><strong>原因</strong>：</p>
+<ul>
+<li>如果在"无障碍"时丢帧 → <code>oa_result</code> 冻结为 AVOID_NONE → 避障永久失效，直到下次64帧全收齐</li>
+<li>如果在"左闪"时丢帧 → <code>oa_result</code> 冻结为 SHIFT_LEFT → 车一直左转停不了</li>
+</ul>
+<div class="fix">
+<div class="fix-title">修复方案</div>
+<pre>// 在 parse_pixel 开头加超时检测:
+static uint32_t last_pixel_ms = 0;
+uint32_t now = HAL_GetTick();
+if (now - last_pixel_ms > 100 && s_rx_mask != 0) {
+    s_rx_mask = 0;  // 超过100ms没收齐，丢弃残帧重新开始
+}
+last_pixel_ms = now;</pre>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="sev s-high">严重</span>P7 · 避障决策表"左偏"不合理</div>
+<p><strong>位置</strong>：<code>tofsense_can.c:200-254</code></p>
+<table>
+<tr><th>情况</th><th>当前决策</th><th>问题</th></tr>
+<tr><td>仅中区危险</td><td>左闪</td><td>如果右边空间更大应该右闪</td></tr>
+<tr><td>左+右同时危险（中间通）</td><td>左闪</td><td>中间是通路，应该直行</td></tr>
+</table>
+<div class="fix">
+<div class="fix-title">修复方案</div>
+<pre>// 仅中区危险: 比较左右哪边远
+} else if (m_danger) {
+    if (FL > FR) {  // 左边空间大 → 左闪
+        r.action = AVOID_SHIFT_LEFT; ...
+    } else {        // 右边空间大 → 右闪
+        r.action = AVOID_SHIFT_RIGHT; ...
+    }
+}
+// 左+右同时危险但中间通: 直行减速
+} else if (r_danger && l_danger) {
+    r.action = AVOID_SLOW_DOWN;
+    r.dist_cm = cfg->slow_dist;
+}</pre>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="sev s-high">严重</span>P8 · s_turn_flag 围堵脱困不真正交替</div>
+<p><strong>位置</strong>：<code>tofsense_can.c:202-212</code></p>
+<pre>if (s_turn_flag == 0) { CCW; s_turn_flag=1; }
+else                   { CW;  s_turn_flag=2; }</pre>
+<p><strong>现象</strong>：三面围堵时车只会先CCW一次，然后永远CW</p>
+<p><strong>原因</strong>：flag=2时 <code>else</code> 分支永远走CW，不会回到CCW。只有暂时脱离三面围堵(flag重置为0)才能恢复。</p>
+<div class="fix">
+<div class="fix-title">修复方案</div>
+<pre>if (s_turn_flag == 0) {
+    r.action = AVOID_ROTATE_CCW; ...
+    s_turn_flag = 1;
+} else {
+    r.action = AVOID_ROTATE_CW; ...
+    s_turn_flag = 0;   // ← 改为0，真正交替
+}</pre>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="sev s-medium">中等</span>P9 · TOF数据无滤波，单点噪声触发避障</div>
+<p><strong>位置</strong>：<code>tofsense_can.c:60-82</code> 取三区最小距离</p>
+<p><strong>现象</strong>：偶尔无障碍物时车突然闪避一下</p>
+<p><strong>原因</strong>：每区16像素取最小值，如果有1个像素因噪声报了0.3m，整区就被判"危险"。没有最小连续帧数确认。</p>
+<div class="fix">
+<div class="fix-title">修复方案</div>
+<p>A. 丢弃每区距离最小的2个点（去极值）再取min<br>B. 连续2帧都判"危险"才执行避障（加计数器）</p>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="sev s-medium">中等</span>P10 · 避障→跟随切换时无平滑过渡</div>
+<p><strong>位置</strong>：<code>main.c:406-430</code> if-else分支</p>
+<p><strong>现象</strong>：避障结束后车突然转向回归UWB方向（甩头）</p>
+<p><strong>原因</strong>：上一帧 angle=±1100(避障)，下一帧直接切到 angle=UWB值(可能是200)，变化900+，电机板直接响应。</p>
+<div class="fix">
+<div class="fix-title">修复方案</div>
+<p>记录上一帧发出的 angle/dist，当前帧做限幅过渡：</p>
+<pre>static int last_angle = 0, last_dist = 0;
+int da = angle - last_angle;
+if (da > 300) da = 300;    // 每帧最大变化300
+if (da < -300) da = -300;
+angle = last_angle + da;
+last_angle = angle;</pre>
+</div>
+</div>
+
+<!-- ==================== 融合问题 ==================== -->
+<h2>三、避障+跟随融合问题</h2>
+
+<div class="card">
+<div class="card-title"><span class="sev s-high">严重</span>P11 · SLOW_DOWN时保留UWB角度的风险</div>
+<p><strong>位置</strong>：<code>main.c:339-342</code> <code>build_avoid_frame()</code></p>
+<pre>case AVOID_SLOW_DOWN:
+    if (dist > ar->dist_cm) dist = ar->dist_cm;
+    break;  // angle 保持 UWB 的 -angle_x10*5</pre>
+<p><strong>现象</strong>：前方有障碍物在减速，但UWB目标在侧面 → 车边减速边转弯 → 侧撞障碍物</p>
+<div class="fix">
+<div class="fix-title">修复方案</div>
+<p>SLOW_DOWN时按距离比例衰减UWB角度：</p>
+<pre>case AVOID_SLOW_DOWN:
+    if (dist > ar->dist_cm) dist = ar->dist_cm;
+    // 越近障碍物，越削弱UWB转向（优先直行）
+    float ratio = FM / cfg->slow_down_distance; // 0~1
+    angle = (int)(angle * ratio);
+    break;</pre>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="sev s-medium">中等</span>P12 · 避障动作不考虑UWB目标方向</div>
+<p><strong>位置</strong>：<code>tofsense_avoid_danger()</code></p>
+<p><strong>现象</strong>：UWB目标在左侧，左边有障碍 → 车右闪后继续追UWB又回来 → 反复左右摆</p>
+<p><strong>原因</strong>：避障决策完全不知道UWB目标在哪，纯看TOF三区。应该在避障方向选择时参考目标角度。</p>
+<div class="fix">
+<div class="fix-title">修复方案（进阶）</div>
+<p>把 <code>uwb_angle_x10</code> 传入避障函数作为辅助参考。当左右都能闪时，优先闪向UWB目标方向：</p>
+<pre>// 仅中区危险 + UWB目标在右侧 → 优先右闪（闪完就能追目标）
+if (m_danger && uwb_angle_x10 > 0) → SHIFT_RIGHT
+if (m_danger && uwb_angle_x10 < 0) → SHIFT_LEFT</pre>
+</div>
+</div>
+
+<!-- ==================== ISR性能 ==================== -->
+<h2>四、性能/可靠性问题</h2>
+
+<div class="card">
+<div class="card-title"><span class="sev s-low">低</span>P13 · ISR中调用 sscanf</div>
+<p><strong>位置</strong>：<code>flw_feed_byte()</code> 在USART2中断中执行</p>
+<p>sscanf解析5个int约20-50μs，期间CAN中断被屏蔽（同优先级）。极端情况下可能丢CAN帧。</p>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="sev s-low">低</span>P14 · parse_pixel中浮点运算</div>
+<p><strong>位置</strong>：<code>tofsense_can.c:46</code> <code>temp / 1000.0f</code> 在CAN ISR中</p>
+<p>C8T6无硬件FPU，软件浮点约3-5μs。64帧连续收时占CPU约320μs/批。</p>
+</div>
+
+<!-- ==================== 总结 ==================== -->
+<h2>修改优先级总表</h2>
+<table>
+<tr><th>优先级</th><th>编号</th><th>问题</th><th>工作量</th></tr>
+<tr><td style="color:#f87171;font-weight:700">P1</td><td>P1</td><td>角度取反bug</td><td>改1字符</td></tr>
+<tr><td style="color:#f87171;font-weight:700">P1</td><td>P6</td><td>TOF位图无超时</td><td>加5行</td></tr>
+<tr><td style="color:#fbbf24;font-weight:700">P2</td><td>P2</td><td>UWB角度无滤波</td><td>加3行</td></tr>
+<tr><td style="color:#fbbf24;font-weight:700">P2</td><td>P3</td><td>UWB距离跳变</td><td>加5行</td></tr>
+<tr><td style="color:#fbbf24;font-weight:700">P2</td><td>P8</td><td>s_turn_flag不交替</td><td>改1行</td></tr>
+<tr><td style="color:#fbbf24;font-weight:700">P2</td><td>P10</td><td>避障→跟随无过渡</td><td>加5行</td></tr>
+<tr><td style="color:#fbbf24;font-weight:700">P2</td><td>P11</td><td>SLOW_DOWN角度风险</td><td>加3行</td></tr>
+<tr><td style="color:#38bdf8;font-weight:700">P3</td><td>P7</td><td>决策表左偏</td><td>改10行</td></tr>
+<tr><td style="color:#38bdf8;font-weight:700">P3</td><td>P9</td><td>TOF单点噪声</td><td>加5行</td></tr>
+<tr><td style="color:#38bdf8;font-weight:700">P3</td><td>P4</td><td>增益+死区配合</td><td>改config一行</td></tr>
+<tr><td style="color:#38bdf8;font-weight:700">P3</td><td>P12</td><td>避障不参考UWB方向</td><td>加10行</td></tr>
+<tr><td style="color:#94a3b8;font-weight:700">P4</td><td>P5</td><td>UWB恢复延迟</td><td>优化流程</td></tr>
+<tr><td style="color:#94a3b8;font-weight:700">P4</td><td>P13</td><td>sscanf在ISR</td><td>重构接收</td></tr>
+<tr><td style="color:#94a3b8;font-weight:700">P4</td><td>P14</td><td>浮点在ISR</td><td>改定点</td></tr>
+</table>
+
+<p style="margin-top:20px;color:#94a3b8;font-size:12px;text-align:center">P1+P2 共约20行改动，解决80%的实际问题</p>
+
+</div>
+</body>
+</html>
