@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>信号板稳定性专题</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif; background:#0f172a; color:#e2e8f0; line-height:1.7; padding:20px 0; }
+  .wrap { max-width:780px; width:92%; margin:0 auto; }
+  h1 { font-size:24px; text-align:center; margin-bottom:6px; color:#fff; }
+  .sub { text-align:center; color:#94a3b8; font-size:13px; margin-bottom:24px; }
+  h2 { font-size:18px; color:#38bdf8; margin:32px 0 12px; padding-bottom:6px; border-bottom:1px solid #334155; }
+  h3 { font-size:15px; color:#fbbf24; margin:18px 0 8px; }
+  .box { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:14px 16px; margin-bottom:12px; }
+  .ok { border-left:3px solid #34d399; }
+  .warn { border-left:3px solid #fbbf24; }
+  .bug { border-left:3px solid #f87171; }
+  .info { border-left:3px solid #38bdf8; }
+  .label { font-size:11px; font-weight:700; letter-spacing:1px; margin-bottom:6px; }
+  .ok .label { color:#34d399; }
+  .warn .label { color:#fbbf24; }
+  .bug .label { color:#f87171; }
+  .info .label { color:#38bdf8; }
+  p { font-size:14px; margin:6px 0; color:#cbd5e1; }
+  code { background:#0f172a; padding:2px 6px; border-radius:4px; font-size:12px; color:#7dd3fc; border:1px solid #334155; }
+  pre { background:#0f172a; padding:12px; border-radius:6px; overflow-x:auto; font-size:12px; color:#cbd5e1; border:1px solid #334155; margin:8px 0; }
+  ul, ol { margin:8px 0 8px 22px; font-size:14px; color:#cbd5e1; }
+  li { margin:4px 0; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:13px; background:#1e293b; border-radius:6px; overflow:hidden; }
+  th, td { padding:8px 10px; border:1px solid #334155; text-align:left; vertical-align:top; }
+  th { background:#0f172a; color:#38bdf8; }
+  .verdict { font-size:16px; font-weight:700; padding:12px 14px; border-radius:8px; margin:12px 0; }
+  .v-ok { background:rgba(52,211,153,.1); color:#34d399; border:1px solid #34d399; }
+  .v-bad { background:rgba(248,113,113,.1); color:#f87171; border:1px solid #f87171; }
+  .v-mid { background:rgba(251,191,36,.1); color:#fbbf24; border:1px solid #fbbf24; }
+  .back { display:inline-block; color:#38bdf8; text-decoration:none; font-size:13px; margin-bottom:20px; }
+  .arrow { color:#64748b; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">← 返回首页</a>
+<h1>信号板稳定性专题</h1>
+<p class="sub">决策层是否会卡死 · 信号是否打架 · 数据流是否清晰</p>
+
+<h2>一、数据流走向（每50ms一次）</h2>
+<pre>
+输入源(异步中断)              主循环(轮询)              输出
+─────────────                ──────────              ────
+USART1 蓝牙  ──> bt_armed
+USART2 BU04  ──> flw_*缓存 ──┐
+                             ├─> 决策仲裁 ──> USART3 → 电机板
+CAN1 TOF     ──> zone缓存 ───┘    (50ms周期)
+</pre>
+
+<div class="box info">
+<div class="label">★ 关键设计</div>
+<p>三路输入<strong>完全独立、各管各</strong>，互不阻塞。主循环只读取共享缓存，<strong>不存在互锁条件</strong>。这是稳定性的最大优点。</p>
+</div>
+
+<h2>二、决策优先级（实际代码顺序）</h2>
+<pre>
+if (!bt_armed)            → 停车帧             [P1 最高]
+else if (避障是闪避/围堵)  → 完全覆盖UWB        [P2]
+else if (UWB在线)          → UWB跟随 + 减速融合 [P3]
+else                       → 停车帧             [P4 兜底]
+</pre>
+
+<div class="box ok">
+<div class="label">✓ 优点</div>
+<p><strong>互斥分支结构（if-else if）</strong>，永远只走一条路径，不会出现"避障+UWB同时发"的冲突。决策<strong>不会打架</strong>。</p>
+</div>
+
+<h2>三、卡死风险分析（逐项）</h2>
+
+<div class="box ok">
+<div class="label">✓ 主循环不会卡死</div>
+<p>主循环只有<code>__WFI()</code>等待中断 + 轮询缓存，<strong>无任何阻塞调用</strong>（除UART3发送50ms超时，下面单独说）。即使所有输入都掉线，仍会按50ms周期发送停车帧。</p>
+</div>
+
+<div class="box bug">
+<div class="label">⚠ 卡死点1 · TOF 64像素位图</div>
+<p>位置：<code>tofsense_can.c</code> <code>s_rx_mask</code></p>
+<p><strong>问题</strong>：必须收齐64个像素才发布 <code>s_zone_ready</code>。若任意1帧CAN丢失，<code>s_rx_mask</code> 永远不会满，<code>tofsense_get_zones()</code> 永远返回false。</p>
+<p><strong>后果</strong>：避障决策<strong>冻结</strong>在丢帧前的最后一次 <code>oa_result</code>。如果当时是"无障碍"，后续即使真有障碍也不会触发；如果当时是"避障中"，会一直避障下去。</p>
+<p><strong>但</strong>：信号板主循环本身<strong>不卡死</strong>，仍按50ms发UWB跟随帧。</p>
+</div>
+
+<div class="box bug">
+<div class="label">⚠ 卡死点2 · s_turn_flag 三面围堵</div>
+<p>位置：<code>tofsense_can.c</code> 第200-212行</p>
+<pre>flag=0 → CCW, flag=1
+flag=1 → CW,  flag=2
+flag=2 → CW,  flag=2  ← 永远走else分支</pre>
+<p><strong>实际行为</strong>：第一次CCW，之后<strong>永远CW</strong>，不是真正交替。</p>
+<p>逃生条件：必须出现"非三面围堵"（哪怕一帧）才会重置flag=0。如果车彻底卡在三角死角，会一直朝同一方向打方向盘<strong>但出不去</strong>。</p>
+</div>
+
+<div class="box warn">
+<div class="label">⚠ 阻塞风险 · UART3 发送</div>
+<p><code>HAL_UART_Transmit(50ms timeout)</code> 是<strong>阻塞调用</strong>。</p>
+<p>正常情况下115200波特发30字节约2.6ms，没问题。但如果电机板USART3硬件故障或线断，每次发送会阻塞50ms。50ms内若有CAN/UWB中断仍能正常处理（中断优先），但主循环节拍会拖到50ms+，调试输出可能错过。</p>
+<p><strong>不会真卡死，但会降级。</strong></p>
+</div>
+
+<h2>四、信号"打架"风险分析</h2>
+
+<div class="box ok">
+<div class="label">✓ 不会打架的场景</div>
+<ul>
+<li><strong>避障 vs UWB跟随</strong>：if-else if 互斥，永远只发一帧</li>
+<li><strong>蓝牙STOP vs 避障</strong>：bt_armed优先级最高，STOP直接覆盖一切</li>
+<li><strong>UWB超时 vs 避障</strong>：避障判断在前，UWB超时在后，避障期间不查UWB</li>
+</ul>
+</div>
+
+<div class="box warn">
+<div class="label">⚠ 隐性冲突1 · UWB数据非原子读取</div>
+<p>主循环这一段：</p>
+<pre>build_avoid_frame(frame, LINE_MAX, &oa_result,
+                  flw_dist, flw_angle_x10);</pre>
+<p>读 <code>flw_dist</code> 后、读 <code>flw_angle_x10</code> 前，如果USART2中断进来更新了一帧，会拿到<strong>旧距离 + 新角度</strong>的混合数据。</p>
+<p><strong>影响</strong>：极偶然，发生概率约百万分之一量级（数据更新窗口几μs vs 50ms周期）。<strong>不严重</strong>。</p>
+</div>
+
+<div class="box warn">
+<div class="label">⚠ 隐性冲突2 · SLOW_DOWN 与 UWB 角度</div>
+<p>当TOF判定SLOW_DOWN时，dist被压到200cm（电机板算速度=（200-150）×3=150），但<strong>UWB角度仍照常×(-5)送出</strong>。</p>
+<p>如果UWB此时正在大角度修正（比如目标偏左60°），车会<strong>边减速边打方向</strong>。这是设计意图，但若TOF误判减速，UWB转向命令会照执行，<strong>可能撞到侧面</strong>。</p>
+</div>
+
+<h2>五、决策一致性问题</h2>
+
+<div class="box bug">
+<div class="label">⚠ 避障决策表的"左优先偏置"</div>
+<table>
+<tr><th>三区危险情况</th><th>决策</th><th>合理性</th></tr>
+<tr><td>右+中 危险</td><td>左闪</td><td>✓ 合理</td></tr>
+<tr><td>中+左 危险</td><td>右闪</td><td>✓ 合理</td></tr>
+<tr><td>右+左 危险（中间空）</td><td>左闪</td><td>? 中间是通路，应直行</td></tr>
+<tr><td>仅右 危险</td><td>左闪</td><td>✓ 合理</td></tr>
+<tr><td>仅中 危险</td><td>左闪</td><td>? 仅中央障碍时左偏不合理（应看左右哪边空）</td></tr>
+<tr><td>仅左 危险</td><td>右闪</td><td>✓ 合理</td></tr>
+</table>
+<p><strong>结论</strong>：决策表对"左+右"和"仅中"两种情况的处理偏简单，<strong>没有比较 FL/FR 哪边空隙大</strong>，固定左闪。在窄通道中可能反复撞墙。</p>
+</div>
+
+<h2>六、最终结论</h2>
+
+<div class="verdict v-ok">✓ 信号板基础架构是稳定的</div>
+<ul>
+<li>三路输入异步独立，主循环纯轮询，<strong>无死锁条件</strong></li>
+<li>决策树是if-else互斥结构，<strong>不会信号打架</strong></li>
+<li>有两层超时保护（BU04 500ms + 蓝牙门控）</li>
+</ul>
+
+<div class="verdict v-mid">⚠ 但有3个真实风险</div>
+<ol>
+<li><strong>TOF 64像素卡帧</strong>：丢1帧CAN就冻结避障数据 → 加超时后按超时数据走</li>
+<li><strong>s_turn_flag 不交替</strong>：三面围堵进入死角后只朝一个方向转 → 改用真正的CCW/CW交替</li>
+<li><strong>避障决策表左偏</strong>：仅中/左+右两种情况固定左闪 → 改成比较 FL/FR 选大的</li>
+</ol>
+
+<div class="verdict v-bad">✗ 与你反馈现象的对应</div>
+<table>
+<tr><th>你的反馈</th><th>信号板层面的解释</th></tr>
+<tr><td>① 直线跑偏</td><td>信号板放大角度×(-5)，与电机板30°死区组合后<strong>过冲</strong></td></tr>
+<tr><td>② 右转变左转</td><td>信号板 <code>angle = -uwb_angle_x10 * 5</code> 取反<strong>是bug</strong></td></tr>
+<tr><td>③ 跑半路停</td><td>BU04超时500ms或USART2 ORE错误后未恢复</td></tr>
+<tr><td>④ STOP后再START卡住</td><td>BU04重连UWB需要时间，期间持续500ms超时停车帧</td></tr>
+</table>
+
+<h2>七、改进优先级建议</h2>
+<ol>
+<li><strong>立即修</strong>：去掉 <code>angle = -uwb_angle_x10 * 5</code> 中的负号 → 解决问题②</li>
+<li><strong>本周修</strong>：TOF 位图加100ms超时，超时后用上一帧zone继续判断</li>
+<li><strong>本周修</strong>：s_turn_flag改成 <code>s_turn_flag = !s_turn_flag</code> 真正交替</li>
+<li><strong>调参</strong>：减小 <code>FLW_ANGLE_DEADZONE_DEG</code>（从30→10）→ 解决问题①</li>
+<li><strong>可选</strong>：避障决策表改成"找最大空隙方向"</li>
+</ol>
+
+</div>
+</body>
+</html>
