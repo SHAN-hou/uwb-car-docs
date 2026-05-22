@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>信号板完整数据流 · 从传感器到电机帧</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif; background:#0f172a; color:#e2e8f0; line-height:1.7; padding:20px 0; }
+  .wrap { max-width:800px; width:92%; margin:0 auto; }
+  h1 { font-size:22px; text-align:center; margin-bottom:6px; color:#fff; }
+  .sub { text-align:center; color:#94a3b8; font-size:13px; margin-bottom:24px; }
+  h2 { font-size:18px; color:#38bdf8; margin:32px 0 12px; padding-bottom:6px; border-bottom:1px solid #334155; }
+  h3 { font-size:15px; color:#fbbf24; margin:18px 0 8px; }
+  .step { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:14px 16px; margin-bottom:2px; position:relative; }
+  .step::after { content:''; position:absolute; bottom:-14px; left:30px; width:2px; height:14px; background:#334155; }
+  .step:last-child::after { display:none; }
+  .step-num { display:inline-block; width:28px; height:28px; background:#0f172a; border:2px solid #38bdf8; border-radius:50%; text-align:center; line-height:24px; font-size:13px; font-weight:700; color:#38bdf8; margin-right:8px; vertical-align:top; }
+  .step-num.r { border-color:#f87171; color:#f87171; }
+  .step-num.g { border-color:#34d399; color:#34d399; }
+  .step-num.y { border-color:#fbbf24; color:#fbbf24; }
+  .step-title { font-size:15px; font-weight:700; color:#fff; display:inline-block; vertical-align:top; }
+  .step p { font-size:13px; margin:6px 0 0 36px; color:#94a3b8; }
+  .step code { background:#0f172a; padding:2px 5px; border-radius:3px; font-size:11px; color:#7dd3fc; border:1px solid #334155; }
+  pre { background:#0f172a; padding:12px; border-radius:6px; overflow-x:auto; font-size:12px; color:#cbd5e1; border:1px solid #334155; margin:8px 0; line-height:1.6; }
+  .box { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:14px 16px; margin:12px 0; }
+  .ok { border-left:3px solid #34d399; }
+  .warn { border-left:3px solid #fbbf24; }
+  .bug { border-left:3px solid #f87171; }
+  .label { font-size:11px; font-weight:700; letter-spacing:1px; margin-bottom:6px; }
+  .ok .label { color:#34d399; }
+  .warn .label { color:#fbbf24; }
+  .bug .label { color:#f87171; }
+  ul { margin:8px 0 8px 22px; font-size:13px; color:#cbd5e1; }
+  li { margin:4px 0; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:12px; background:#1e293b; border-radius:6px; overflow:hidden; }
+  th, td { padding:7px 10px; border:1px solid #334155; text-align:left; }
+  th { background:#0f172a; color:#38bdf8; }
+  td { color:#cbd5e1; }
+  .back { display:inline-block; color:#38bdf8; text-decoration:none; font-size:13px; margin-bottom:16px; }
+  .phase { background:#0f172a; display:inline-block; padding:3px 10px; border-radius:6px; font-size:11px; font-weight:700; letter-spacing:1px; margin:20px 0 8px; }
+  .p1 { color:#38bdf8; border:1px solid #38bdf8; }
+  .p2 { color:#fbbf24; border:1px solid #fbbf24; }
+  .p3 { color:#34d399; border:1px solid #34d399; }
+  .p4 { color:#f87171; border:1px solid #f87171; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">← 返回首页</a>
+<h1>信号板完整数据流</h1>
+<p class="sub">从传感器原始数据 → 决策仲裁 → 发出电机驱动帧的每一步</p>
+
+<!-- ============ 第一阶段 ============ -->
+<div class="phase p1">阶段一 · 传感器数据接收（中断层，异步并行）</div>
+
+<div class="step">
+<span class="step-num">1</span>
+<span class="step-title">蓝牙接收 · USART1 中断</span>
+<p>优先级=1 · PA10 RX · 115200 baud</p>
+<p>每收1字节 → <code>USART1_IRQHandler</code> → <code>bt_feed_byte()</code></p>
+<p>按行拼装到 <code>bt_line[16]</code>，遇 <code>\n</code> 检查是否为 "START" 或 "STOP"</p>
+<pre>收到 "START\n" → bt_armed = 1, LED亮, 回复 "ACK_START\r\n"
+收到 "STOP\n"  → bt_armed = 0, LED灭, 回复 "ACK_STOP\r\n"
+其他内容       → 丢弃（bt_idx=0 重置）
+缓冲区满(16字节) → bt_idx=0 丢弃当前行</pre>
+</div>
+
+<div class="step">
+<span class="step-num">2</span>
+<span class="step-title">UWB接收 · USART2 中断</span>
+<p>优先级=1 · PA3 RX · 115200 baud</p>
+<p>每收1字节 → <code>USART2_IRQHandler</code> → <code>flw_feed_byte()</code></p>
+<p>按行拼装到 <code>flw_line[128]</code>，遇 <code>\n</code> 检查是否为 <code>$FLW,</code> 开头</p>
+<pre>解析: sscanf(flw_line, "$FLW,%d,%d,%d,%d,%d", &d, &a, &x, &y, &s)
+成功(==5) → 写入缓存变量:
+   flw_dist      = d        (距离 cm)
+   flw_angle_x10 = a        (角度×10)
+   flw_x         = x        (X坐标 cm)
+   flw_y         = y        (Y坐标 cm)
+   flw_status    = s        (1=跟随 3=丢失)
+   flw_have      = 1        (标记有数据)
+   flw_last_ms   = HAL_GetTick()  (时间戳)
+失败 → 保持旧数据，不更新时间戳（超时机制兜底）</pre>
+</div>
+
+<div class="step">
+<span class="step-num">3</span>
+<span class="step-title">TOF激光接收 · CAN1 中断</span>
+<p>优先级=2 · PA11 RX · 1Mbps · StdID 0x200~0x2FF</p>
+<p>每收1帧 → <code>USB_LP_CAN1_RX0_IRQHandler</code> → <code>HAL_CAN_RxFifo0MsgPendingCallback</code> → <code>parse_pixel()</code></p>
+<pre>
+① 校验: StdID 范围 [0x200,0x2FF] + DLC≥7 + idx&lt;64
+② 解码: 8字节 → 距离(float m) + 状态(uint8) + 信号强度(uint16)
+③ 存入: s_pixels[idx] = {dis, dis_status, signal_strength}
+④ 位图: s_rx_mask |= (1ULL &lt;&lt; idx)
+⑤ 判满: if (s_rx_mask == 0xFFFF_FFFF_FFFF_FFFF)
+   → 遍历3个区各16像素，取每区最小有效距离(status==0)
+   → 写入 s_zone = {left/middle/right 的 dis, rssi, status}
+   → s_zone_ready = true
+   → s_rx_mask = 0 (开始下一帧)
+</pre>
+</div>
+
+<div class="box warn">
+<div class="label">⚠ 关键：三路中断完全独立</div>
+<ul>
+<li>USART1(蓝牙)写 <code>bt_armed</code></li>
+<li>USART2(UWB)写 <code>flw_*</code> 系列变量</li>
+<li>CAN1(TOF)写 <code>s_zone</code></li>
+<li>三者之间<strong>没有任何共享资源</strong>，不会互相阻塞</li>
+</ul>
+</div>
+
+<!-- ============ 第二阶段 ============ -->
+<div class="phase p2">阶段二 · 决策仲裁（主循环轮询，每50ms一次）</div>
+
+<div class="step">
+<span class="step-num y">4</span>
+<span class="step-title">读取TOF避障结果</span>
+<p>主循环每圈执行：</p>
+<pre>if (tofsense_get_zones(&zone)) {
+    // zone有新数据 → 重新做避障决策
+    oa_result = tofsense_avoid_danger(&zone, &avoid_cfg);
+}
+// 否则 → oa_result 保持上次的值</pre>
+<p><code>tofsense_get_zones</code> 内部会 <code>__disable_irq()</code> 原子拷贝zone，然后清 <code>s_zone_ready</code></p>
+</div>
+
+<div class="step">
+<span class="step-num y">5</span>
+<span class="step-title">避障决策树（7路分支）</span>
+<p>输入：左/中/右三区的 <code>距离</code> + <code>信号强度</code> + <code>状态</code></p>
+<pre>
+有效性过滤: rssi > 阈值(2) 且 status ≠ 255 → 该区"有效"
+危险判定: 有效 且 距离 &lt; 0.6m → 该区"危险"
+
+决策表（按优先级从高到低）:
+┌─────────────┬──────────┬───────────────────────────┐
+│ 条件         │ 动作      │ 输出 (steer_x10, dist_cm) │
+├─────────────┼──────────┼───────────────────────────┤
+│ R+M+L 危险   │ 围堵脱困  │ ±1500, 130 (交替CCW/CW)   │
+│ R+M 危险     │ 左闪      │ -1100, 180                │
+│ M+L 危险     │ 右闪      │ +1100, 180                │
+│ R+L 危险     │ 左闪      │ -1100, 180                │
+│ 仅R 危险     │ 左闪      │ -1100, 180                │
+│ 仅M 危险     │ 左闪      │ -1100, 180                │
+│ 仅L 危险     │ 右闪      │ +1100, 180                │
+│ 无危险但&lt;1m  │ 减速      │ dist限到200               │
+│ 完全无障碍    │ 无动作    │ —                         │
+└─────────────┴──────────┴───────────────────────────┘
+</pre>
+</div>
+
+<div class="step">
+<span class="step-num y">6</span>
+<span class="step-title">50ms周期发送触发</span>
+<p>检查: <code>(int32_t)(now - next_tx) >= 0</code></p>
+<p>满足 → 进入仲裁分支；不满足 → <code>__WFI()</code> 睡眠等下一轮</p>
+</div>
+
+<!-- ============ 第三阶段 ============ -->
+<div class="phase p3">阶段三 · 帧生成与发送（决策出口，互斥4选1）</div>
+
+<div class="step">
+<span class="step-num g">7</span>
+<span class="step-title">四路互斥决策（if-else if 结构）</span>
+<pre>
+分支A: if (!bt_armed)
+  └─ 直接发: "$FLW,0,0,0,0,3\r\n" (停车帧, status=3)
+
+分支B: else if (避障动作 ∈ {SHIFT_LEFT/RIGHT, ROTATE_CW/CCW})
+  └─ 完全覆盖UWB数据
+  └─ 发: "$FLW,{oa.dist_cm},{oa.steer_x10},0,0,1\r\n"
+  └─ 示例: "$FLW,180,-1100,0,0,1\r\n" (左闪)
+
+分支C: else if (flw_have && 未超时500ms)
+  └─ 调用 build_avoid_frame() 融合 UWB + TOF减速
+  └─ 内部逻辑:
+     │ angle = -uwb_angle_x10 * 5  ← ⚠ 取反+5倍增益
+     │ if SLOW_DOWN: dist = min(uwb_dist, 200)
+     │ if NONE: dist = uwb_dist, angle不变
+  └─ 发: "$FLW,{dist},{angle},0,0,1\r\n"
+  └─ 示例: UWB报 dist=300,angle=150 → "$FLW,300,-750,0,0,1\r\n"
+
+分支D: else
+  └─ UWB超时或从未收到数据
+  └─ 直接发: "$FLW,0,0,0,0,3\r\n" (停车帧)
+</pre>
+</div>
+
+<div class="step">
+<span class="step-num g">8</span>
+<span class="step-title">UART3 物理发送</span>
+<p><code>uart3_send_str(frame)</code> → <code>HAL_UART_Transmit(&huart3, ..., 50)</code></p>
+<p>115200 baud 发30字节约 <strong>2.6ms</strong>，正常情况远小于50ms超时</p>
+<p>发送完成后主循环继续下一轮</p>
+</div>
+
+<!-- ============ 第四阶段 ============ -->
+<div class="phase p4">阶段四 · 调试回传（每500ms，非关键路径）</div>
+
+<div class="step">
+<span class="step-num r">9</span>
+<span class="step-title">蓝牙调试输出</span>
+<p>每500ms通过USART1回传给手机/BU03：</p>
+<pre>TOF:L0.85 M1.20 R0.43 [R>] d:180 s:1100 | UWB:Y d=300 a=150 age=45</pre>
+<p>包含：三区距离、当前避障动作、UWB状态、数据年龄</p>
+</div>
+
+<!-- ============ 时序图 ============ -->
+<h2>完整时序图</h2>
+<pre>
+时间线  0ms     10ms    20ms    30ms    40ms    50ms    60ms
+        │       │       │       │       │       │       │
+中断层  ─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─
+CAN(TOF) ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑ ↑...收齐64帧
+UART2    ───────────↑ ($FLW帧, ~每100ms来一帧)
+UART1    ─────────────────────────────────────↑ (偶尔 START/STOP)
+         │       │       │       │       │       │
+主循环   ─WFI──WFI──WFI──WFI──WFI──WFI──┬──────┬── WFI
+                                         │      │
+                                    读zone  生成帧
+                                    做决策  UART3发送
+                                         │  (~2.6ms)
+                                         ↓
+                                  "$FLW,300,-750,0,0,1\r\n"
+                                         │
+                                    电机板收到
+</pre>
+
+<!-- ============ 数据变换链 ============ -->
+<h2>角度数据变换链（追踪一个角度值的完整旅程）</h2>
+<table>
+<tr><th>阶段</th><th>位置</th><th>操作</th><th>示例值</th></tr>
+<tr><td>BU04 UWB测量</td><td>UWB模组</td><td>原始角度 × 10</td><td>+150 (=15.0°右偏)</td></tr>
+<tr><td>USART2 接收</td><td>信号板 <code>flw_feed_byte</code></td><td>解析存入 <code>flw_angle_x10</code></td><td>150</td></tr>
+<tr><td>build_avoid_frame</td><td>信号板主循环</td><td><code>-angle × 5</code></td><td>-750</td></tr>
+<tr><td>USART3 发送</td><td>信号板→电机板</td><td>帧: <code>$FLW,300,-750,...</code></td><td>-750</td></tr>
+<tr><td>flw_apply 解析</td><td>电机板 <code>flw_follow.c</code></td><td><code>angle_x10 / 10</code></td><td>-75</td></tr>
+<tr><td>死区判断</td><td>电机板</td><td><code>|angle| < 30 → 0</code></td><td>-75 (不在死区)</td></tr>
+<tr><td>P控制</td><td>电机板</td><td><code>steer = angle × KP(4)</code></td><td>-300</td></tr>
+<tr><td>混控器</td><td>电机板 <code>mixerFcn</code></td><td><code>R=spd-steer, L=spd+steer</code></td><td>R=+300, L=-300+spd</td></tr>
+<tr><td>物理效果</td><td>车轮</td><td>右轮快、左轮慢</td><td><strong>车向左转</strong></td></tr>
+</table>
+
+<div class="box bug">
+<div class="label">⚠ BUG就在这里</div>
+<p>UWB说目标在<strong>右边</strong>(+15°) → 经过信号板 <code>-angle×5</code> 变成 <strong>-750</strong> → 电机板算出 steer=-300 → 混控右轮快左轮慢 → <strong>车向左转</strong>！</p>
+<p>车应该向右追目标，实际向左跑，<strong>越走越远</strong>。</p>
+<p><strong>修复</strong>：去掉负号，改为 <code>angle = uwb_angle_x10 * 5</code></p>
+</div>
+
+<!-- ============ 距离变换链 ============ -->
+<h2>距离数据变换链</h2>
+<table>
+<tr><th>阶段</th><th>操作</th><th>正常跟随示例</th><th>减速区示例</th><th>避障示例</th></tr>
+<tr><td>BU04测量</td><td>原始距离cm</td><td>300</td><td>300</td><td>300</td></tr>
+<tr><td>信号板缓存</td><td><code>flw_dist</code></td><td>300</td><td>300</td><td>—(被覆盖)</td></tr>
+<tr><td>信号板决策</td><td>build_avoid_frame</td><td>dist=300</td><td>min(300,200)=200</td><td>dist=180(避障值)</td></tr>
+<tr><td>电机板接收</td><td>$FLW帧dist</td><td>300</td><td>200</td><td>180</td></tr>
+<tr><td>电机板P控</td><td>(dist-150)×3</td><td>speed=450→限400</td><td>speed=150</td><td>speed=90</td></tr>
+<tr><td>物理效果</td><td>—</td><td>正常追</td><td>慢追</td><td>避障慢走</td></tr>
+</table>
+
+<!-- ============ 异常场景 ============ -->
+<h2>异常场景数据流</h2>
+
+<h3>场景1：BU04 UWB掉线</h3>
+<pre>
+USART2中断停止 → flw_last_ms 不再更新
+主循环: (now - flw_last_ms) > 500ms → 走分支D
+→ 每50ms发 "$FLW,0,0,0,0,3\r\n"
+→ 电机板 flw_apply 见 status=3 → speed=0, steer=0 → 停车
+</pre>
+
+<h3>场景2：TOF CAN丢帧</h3>
+<pre>
+64帧只收到63帧 → s_rx_mask ≠ 全1 → s_zone_ready 永远false
+→ tofsense_get_zones() 永远返回false
+→ oa_result 冻结在丢帧前的值
+→ 如果是AVOID_NONE → UWB正常走，只是没有避障保护
+→ 如果是SHIFT_LEFT → 会一直左闪！直到下次收齐64帧
+</pre>
+
+<h3>场景3：按STOP后再START</h3>
+<pre>
+STOP → bt_armed=0 → 持续发停车帧
+START → bt_armed=1
+   ├─ 如果BU04一直在发 → flw_have=1, flw_last_ms是最近的 → 立即恢复跟随
+   └─ 如果BU04也断开了(BU03 STOP同时断UWB)
+      → flw_last_ms 是旧时间 → 超时 → 继续发停车帧
+      → 必须等BU04重新发出$FLW帧才能恢复
+      → 这就是你反馈的"问题④"的原因
+</pre>
+
+<h3>场景4：三路同时有数据</h3>
+<pre>
+中断层: USART1/USART2/CAN1 各自独立更新缓存（不冲突）
+主循环50ms触发:
+  ① 读zone → 算oa_result
+  ② 进入if-else:
+     bt_armed=1 + oa_result=SHIFT_LEFT → 走分支B（避障覆盖UWB）
+     UWB数据完全忽略，不会"打架"
+</pre>
+
+<h2>总结：决策逻辑清晰度评价</h2>
+<div class="box ok">
+<div class="label">✓ 做得好的地方</div>
+<ul>
+<li><strong>中断层完全解耦</strong>：三路传感器各写各的变量，零冲突</li>
+<li><strong>决策层互斥分支</strong>：永远只走一条路，不会叠加</li>
+<li><strong>时间基准可靠</strong>：<code>(int32_t)(now-next_tx)>=0</code> 抗回卷</li>
+<li><strong>超时兜底完善</strong>：UWB 500ms + 电机板 1000ms 双重保护</li>
+</ul>
+</div>
+
+<div class="box bug">
+<div class="label">✗ 存在的问题</div>
+<ul>
+<li><strong>角度取反bug</strong>：<code>-uwb_angle_x10 * 5</code> 导致转向方向完全反</li>
+<li><strong>TOF无超时</strong>：丢1帧CAN就冻结避障数据，可能一直执行旧的避障动作</li>
+<li><strong>STOP后UWB恢复依赖BU04</strong>：信号板不主动请求BU04重连</li>
+<li><strong>sscanf在ISR中</strong>：<code>flw_feed_byte</code> 在USART2中断里调用 sscanf，耗时约20-50μs</li>
+</ul>
+</div>
+
+</div>
+</body>
+</html>
