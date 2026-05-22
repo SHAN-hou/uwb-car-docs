@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>四AI分析共识总结</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif; background:#0f172a; color:#e2e8f0; line-height:1.7; padding:20px 0; }
+  .wrap { max-width:760px; width:92%; margin:0 auto; }
+  h1 { font-size:24px; text-align:center; margin-bottom:6px; color:#fff; }
+  .sub { text-align:center; color:#94a3b8; font-size:13px; margin-bottom:28px; }
+  h2 { font-size:18px; color:#38bdf8; margin:32px 0 12px; padding-bottom:6px; border-bottom:1px solid #334155; }
+  h3 { font-size:15px; color:#fbbf24; margin:18px 0 8px; }
+  .box { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:16px 18px; margin-bottom:12px; }
+  .box.ok { border-left:3px solid #34d399; }
+  .box.warn { border-left:3px solid #fbbf24; }
+  .box.bug { border-left:3px solid #f87171; }
+  .box .label { font-size:11px; font-weight:700; letter-spacing:1px; margin-bottom:6px; }
+  .box.ok .label { color:#34d399; }
+  .box.warn .label { color:#fbbf24; }
+  .box.bug .label { color:#f87171; }
+  p { font-size:14px; margin:6px 0; color:#cbd5e1; }
+  code { background:#0f172a; padding:2px 6px; border-radius:4px; font-size:12px; color:#7dd3fc; border:1px solid #334155; }
+  ul { margin:8px 0 8px 22px; font-size:14px; color:#cbd5e1; }
+  li { margin:4px 0; }
+  table { width:100%; border-collapse:collapse; margin:12px 0; font-size:13px; background:#1e293b; border-radius:8px; overflow:hidden; }
+  th, td { padding:8px 10px; border:1px solid #334155; text-align:left; vertical-align:top; }
+  th { background:#0f172a; color:#38bdf8; }
+  td { color:#cbd5e1; }
+  .ai-tag { display:inline-block; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:600; margin-right:3px; }
+  .tc { background:rgba(56,189,248,.15); color:#38bdf8; }
+  .tcl { background:rgba(167,139,250,.15); color:#a78bfa; }
+  .tg { background:rgba(52,211,153,.15); color:#34d399; }
+  .td { background:rgba(251,191,36,.15); color:#fbbf24; }
+  .back { display:inline-block; color:#38bdf8; text-decoration:none; font-size:13px; margin-bottom:20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">← 返回首页</a>
+<h1>四AI分析共识总结</h1>
+<p class="sub">Cascade · Claude 4.7 · GPT · DeepSeek</p>
+
+<h2>一、系统架构的共同认知</h2>
+
+<div class="box ok">
+<div class="label">✓ 全部AI一致</div>
+<p><strong>三层架构</strong>：测量层（BU04 UWB）→ 仲裁层（信号板 C8T6）→ 执行层（电机板 RCT6）</p>
+<p>三块板通过 <code>$FLW,dist,angle,x,y,status</code> 统一协议串联，主板对 UWB 跟随与避障使用同一接口，<strong>解耦良好</strong>。</p>
+</div>
+
+<div class="box ok">
+<div class="label">✓ 全部AI一致</div>
+<p><strong>信号板是策略仲裁器，不是透传板</strong>。它把 UWB 测量 + TOF 避障 + 蓝牙门控融合后，生成"虚拟跟随目标"发给主板。</p>
+</div>
+
+<h2>二、关键参数共识</h2>
+<table>
+<tr><th>参数</th><th>值</th><th>说明</th></tr>
+<tr><td>主板 PWM/FOC 频率</td><td>16 kHz</td><td>ADC DMA 中断驱动</td></tr>
+<tr><td>主板主循环</td><td>~2 ms</td><td>命令注入 + 滤波 + 混控</td></tr>
+<tr><td>信号板转发周期</td><td>50 ms (20 Hz)</td><td>仲裁层节拍</td></tr>
+<tr><td>BU04 超时（信号板）</td><td>500 ms</td><td>第一层停车</td></tr>
+<tr><td>$FLW 超时（主板）</td><td>1000 ms</td><td>第二层兜底</td></tr>
+<tr><td>UWB 目标距离</td><td>150 cm</td><td>跟随保持距</td></tr>
+<tr><td>TOF 危险/减速距离</td><td>0.6 m / 1.0 m</td><td>避障触发阈值</td></tr>
+<tr><td>CAN 速率</td><td>1 Mbps</td><td>TOFSense 64 像素</td></tr>
+</table>
+
+<h2>三、保护机制共识</h2>
+<div class="box ok">
+<div class="label">✓ 一致认可</div>
+<ul>
+<li><strong>多层防线</strong>：硬电流斩波 → FOC errCode → 蓝牙门控 → 避障覆盖 → 超时停车 → 电池/温度断电</li>
+<li><strong>双层超时</strong>：信号板 500ms 先断，主板 1000ms 兜底</li>
+<li><strong>蓝牙急停</strong>：<code>bt_armed=0</code> 强制下发 <code>$FLW,0,0,0,0,3</code></li>
+<li><strong>避障覆盖优先级高于 UWB 跟随</strong></li>
+</ul>
+</div>
+
+<h2>四、被全部AI识别的Bug/风险</h2>
+
+<div class="box bug">
+<div class="label">⚠ BUG · 4 AI 全部识别（不同视角）</div>
+<h3><code>angle = -uwb_angle_x10 * 5</code> 取反问题</h3>
+<p><span class="ai-tag tc">Cascade</span><span class="ai-tag tcl">Claude</span><span class="ai-tag tg">GPT</span><span class="ai-tag td">DeepSeek</span></p>
+<ul>
+<li><strong>Cascade</strong>：明确判定为 bug，导致"向右转变向左转"</li>
+<li><strong>Claude</strong>：称为"反向×5增益，差速车需更大修正"（认为是设计）</li>
+<li><strong>GPT</strong>：称为"主动坐标/增益适配层"（认为是设计）</li>
+<li><strong>DeepSeek</strong>：标注"可能溢出"风险（中等）</li>
+</ul>
+<p><strong>结论</strong>：四方都注意到了这行代码，但只有 Cascade 把它和实际"转向反"现象关联。这是<strong>真实 bug</strong>。</p>
+</div>
+
+<div class="box bug">
+<div class="label">⚠ BUG · 3 AI 识别</div>
+<h3>TOF 64 像素位图无超时保护</h3>
+<p><span class="ai-tag tc">Cascade</span><span class="ai-tag tg">GPT</span><span class="ai-tag td">DeepSeek</span></p>
+<p>任意 CAN 帧丢失 → <code>s_rx_mask</code> 永远无法填满 → <code>s_zone_ready</code> 卡死 → 避障数据冻结在上一帧。</p>
+</div>
+
+<div class="box bug">
+<div class="label">⚠ BUG · 3 AI 识别</div>
+<h3><code>uart3_send_str</code> 阻塞发送 50ms 超时</h3>
+<p><span class="ai-tag tc">Cascade</span><span class="ai-tag td">DeepSeek</span><span class="ai-tag tcl">Claude</span></p>
+<p>HAL 阻塞调用可能拖慢主循环，影响其他外设响应。</p>
+</div>
+
+<div class="box warn">
+<div class="label">⚠ 设计争议 · 多方提及</div>
+<h3>主板 UWB 段强制清零 errCode 和超时标志</h3>
+<p><span class="ai-tag tg">GPT</span><span class="ai-tag td">DeepSeek</span><span class="ai-tag tcl">Claude</span></p>
+<p>主板在 UWB 注入段主动清掉 <code>z_errCode</code>、<code>timeoutFlgADC/Serial/Gen</code>，让 UWB 命令最高优先级。</p>
+<p><strong>风险</strong>：硬件故障会被静默掩盖（DeepSeek 标"严重"）</p>
+</div>
+
+<div class="box warn">
+<div class="label">⚠ 设计偏置 · 3 AI 识别</div>
+<h3>避障状态机的左优先偏置</h3>
+<p><span class="ai-tag tc">Cascade</span><span class="ai-tag tcl">Claude</span><span class="ai-tag tg">GPT</span></p>
+<p>多区危险时默认左闪；只有左侧单独危险时才右移。系统存在<strong>非对称的避障决策</strong>。</p>
+</div>
+
+<div class="box warn">
+<div class="label">⚠ 状态机疑似Bug · 各方分歧</div>
+<h3><code>s_turn_flag</code> 三面围堵旋转交替</h3>
+<ul>
+<li><strong>Cascade</strong>：判定 bug，flag=1 后永远走 else 分支，<strong>不会交替</strong></li>
+<li><strong>Claude / GPT / DeepSeek</strong>：均描述为"交替 CCW/CW"（认为正确）</li>
+</ul>
+<p><strong>需实地验证</strong>。Cascade 的判断更细致地读了代码逻辑。</p>
+</div>
+
+<h2>五、被识别的协议设计问题</h2>
+
+<div class="box warn">
+<div class="label">⚠ DeepSeek 独家深入</div>
+<h3>$FLW 协议二义性</h3>
+<p>信号板 ×5 增益 + 电机板 ÷10 ×KP，参数调整需同时改两端。</p>
+</div>
+
+<div class="box warn">
+<div class="label">⚠ Cascade & GPT 一致</div>
+<h3>volatile 变量非原子读取</h3>
+<p>UWB 数据（dist/angle/x/y）在主循环中分多次读，可能拿到旧角度+新距离的混合数据。</p>
+</div>
+
+<h2>六、各AI的独特视角</h2>
+
+<table>
+<tr><th>AI</th><th>强项</th><th>弱项</th></tr>
+<tr><td><strong>Cascade</strong></td><td>定位实际bug（转向反、s_turn_flag）、把现象与代码挂钩</td><td>未覆盖 Ai-UWB-SDK</td></tr>
+<tr><td><strong>Claude 4.7</strong></td><td>架构图清晰、NVIC优先级表完整、性能指标量化</td><td>部分判断偏"善意解读"</td></tr>
+<tr><td><strong>GPT</strong></td><td>覆盖最广（含 UWB SDK / BU04 / Tools 脚本）、深度区分代码vs注释</td><td>错误判定 s_turn_flag 正常</td></tr>
+<tr><td><strong>DeepSeek</strong></td><td>独家列出 10 个跨模块"配合问题"和漏洞清单（最实用）</td><td>架构描述较简略</td></tr>
+</table>
+
+<h2>七、最终结论</h2>
+<div class="box ok">
+<div class="label">★ 总结</div>
+<p>四方在<strong>架构理解、参数事实、保护机制</strong>上高度一致。在<strong>"角度取反"、"s_turn_flag交替"</strong>等关键代码细节上出现分歧，原因是其他三方倾向把代码当"设计意图"解读，而 Cascade 把代码当"实际行为"分析——结合你反馈的实车现象，<strong>Cascade 的 bug 判断更可靠</strong>。</p>
+<p>下一步建议：先修 <code>build_avoid_frame</code> 中的角度符号（去掉负号），实车验证你反馈的问题②是否消失，再处理其他风险。</p>
+</div>
+
+</div>
+</body>
+</html>
