@@ -53,6 +53,9 @@
   <a href="#sec6">六、异常处理</a>
   <a href="#sec7">七、优先级</a>
   <a href="#sec8">八、信号板深层逻辑</a>
+  <a href="#sec9" style="color:#f0883e">九、模块漏洞</a>
+  <a href="#sec10" style="color:#f0883e">十、模块协同问题</a>
+  <a href="#top1" style="color:#ff6b6b;font-weight:600">⚠ 最优先问题</a>
 </nav>
 <main>
   <h1>整车代码全景分析 · V1.0</h1>
@@ -224,6 +227,82 @@
   <p><code>PC13</code> 上电 6 次心跳验证 GPIO 正常；之后常亮=已布防、灭=未布防——同时承担运行状态指示和电源/固件健康指示。</p>
   <h3>7. 调试串口回写</h3>
   <p>通过 USART1（蓝牙）把三区距离 + 决策动作 + UWB 状态实时广播给手机/BU03，现场无线调参不需重插线。</p>
+
+  <h2 id="sec9" style="color:var(--warn)">九、各模块明显漏洞</h2>
+  <h3>主控板</h3>
+  <ol>
+    <li><strong style="color:#ff6b6b">【致命】</strong><code>main.c</code> UWB 段强制清零所有保护标志 + errCode + 强制 <code>enable=1</code>（<code>main.c:336-341</code>）：
+<pre><code>timeoutFlgADC=0; timeoutFlgSerial=0; timeoutFlgGen=0;
+rtY_Left.z_errCode=0; rtY_Right.z_errCode=0;
+enable = 1;</code></pre>
+    把过流、超时、FOC 错误码、电机使能逻辑<strong>全部短路</strong>。<code>bldc.c::enableFin = enable &amp;&amp; !errCode</code> 两侧都被强制 true，硬件级一票否决形同虚设。</li>
+    <li><strong style="color:#ff6b6b">【严重】</strong><code>main.c:271-272</code> 在 <code>readCommand()</code> 之后立刻 <code>input1/2[inIdx].cmd = 0</code>：所有 ADC/PPM/PWM/Serial/Nunchuk 输入实际被废弃；信号板掉线则没有备份控制源。</li>
+    <li><code>flw_follow.c::uart_steer_cmd / uart_speed_cmd</code> 未声明 <code>volatile</code>：主循环异步读、ISR 上下文异步写，编译器可能优化掉读取。</li>
+    <li><code>bldc.c::OverrunFlag</code> 顺序异常：<code>if(OverrunFlag) return;</code> 之前没 lock，return 时也不清标志；依赖单核 ISR 不会真嵌套才幸运不出问题。</li>
+    <li><code>bldc.c</code> 偏置标定 <code>offsetcount&lt;2000</code> 阶段 <code>return</code>：要求电机绝对静止，未做强制刹车，外力转动会污染零位标定。</li>
+    <li><code>HardFault/MemManage/BusFault/UsageFault_Handler</code> 全是 <code>while(1)</code> 死循环且未开看门狗，故障后只能拔电源。</li>
+    <li><code>eeprom.c</code> 关机写 FLASH 没有 CRC/双副本，掉电中断写入会留下损坏参数。</li>
+    <li><code>Nunchuk_Read</code> 在主循环里 <code>HAL_Delay(3)</code>：阻塞调用破坏主循环节拍。</li>
+    <li><code>flw_apply</code> 没对 <code>angle_x10</code> 范围做检查：BU04 发极值时计算可读性差。</li>
+    <li><code>USART2/3</code> 与 DMA + <code>DMA1_Channel1</code>(FOC) 同为优先级 0：USART/DMA ISR 一旦执行 &gt; 62.5 µs 就会丢一个 FOC 周期。</li>
+  </ol>
+  <h3>信号板</h3>
+  <ol start="11">
+    <li><strong style="color:#ff6b6b">【严重】</strong><code>tofsense_can.c::s_rx_mask</code> 必须 64 个像素全齐才发布：偶尔丢一两个像素时 <code>s_rx_mask</code> 永远凑不齐 <code>0xFFFFFFFFFFFFFFFF</code>，<strong>避障决策卡死在旧值</strong>；缺乏"换轮触发"或超时强制发布机制。</li>
+    <li><code>flw_dist / flw_angle_x10 / flw_x / flw_y / flw_status</code> 是分立 volatile：USART2 中断分多次写入，主循环 snprintf 可能读到一半新一半旧。</li>
+    <li><code>build_avoid_frame</code> 中 <code>angle = -uwb_angle_x10 * 5</code>：可达 5 位以上；主控 <code>sscanf("%d")</code> 后<strong>强转 (int16_t)</strong>，&gt; ±32767 会截断翻转，瞬间出现反向大转向命令。</li>
+    <li><code>tofsense_avoid_danger</code> 中 <code>r_danger &amp;&amp; l_danger</code>（无 m_danger）默认左闪：左右两侧障碍但正前方空旷应直行通过，目前会无谓转向，可能撞上左侧障碍。</li>
+    <li><code>avoid_cfg.slow_dist=200</code> 必须 &gt; 电机板 TARGET=150 是软约束，无运行时校验。</li>
+    <li><code>bt_armed</code> volatile 但 LED 切换不在临界区（仅显示错位）。</li>
+    <li>RX 缓存 <code>bt_line/flw_line</code>（16/128）溢出策略是丢整行——攻击者持续无 <code>\n</code> 数据可永久阻断该串口合法命令。</li>
+    <li>信号板没有任何独立看门狗（IWDG/WWDG 未启用）：主循环卡死时下游靠 1 s FLW 超时兜底——存在最长 1 s 失控窗口。</li>
+  </ol>
+
+  <h2 id="sec10" style="color:var(--warn)">十、模块间配合时的问题</h2>
+  <ol>
+    <li><strong style="color:#ff6b6b">【最优先】</strong>UWB 段对保护机制的"重置"在 200 Hz 频率上持续冲刷错误标志：<code>bldc.c</code> 16 kHz 中刚检测到的 <code>z_errCode</code>，5 ms 内被主循环擦除。错误蜂鸣 <code>if (rtY_Left.z_errCode) beepCount(1,24,1)</code> 永远进不去 → <strong>故障静默</strong>。</li>
+    <li><strong>频率失配</strong>：信号板 20 Hz vs 主控 200 Hz vs FOC 16 kHz。一次避障决策最迟 50+5 ≈ 55 ms 才传达到电机；以 1 m/s 速度计 ≈ 5.5 cm 盲走距离。</li>
+    <li><strong>64 像素拼帧失败 × 50 ms 强制发帧</strong>：信号板避障数据卡死时仍每 50 ms 发"旧"判决；主控按其驱动电机。</li>
+    <li><code>status=1</code> 复用语义混淆：信号板把"虚拟跟随点"塞进 <code>$FLW,...,1</code>，主控无法区分真实 UWB 数据和避障命令。</li>
+    <li>USART3 单向通信：主控只读不应答，信号板无法知道电机板是否真正执行了避障。</li>
+    <li><code>FLW_TIMEOUT_MS=1000</code> vs 信号板 50 ms 推帧：信号板掉电/卡死 → 主控需 1 s 才停车；期间车辆失控。</li>
+    <li>UWB 段覆盖 vs <code>readCommand</code>：<code>timeoutFlgADC=1</code> 立即被 UWB 段重置；调试串口看到 ADC 原始值在跳但保护消失。</li>
+    <li><code>bt_armed=0</code> 触发停车依赖下一次 50 ms 推帧：最坏 100 ms 急停延迟。</li>
+    <li>EEPROM 写入与 FOC 16 kHz 中断竞争：FLASH 写期间关全局中断让 FOC 丢拍，关机瞬间可能听到电机异响。</li>
+    <li>优先级同级：DMA1_Ch1(FOC) 与 USART/DMA RX 均 Pre=0，STM32F1 同级不抢占；<code>usart2_rx_check</code> 长 memcpy 可能延误 FOC 中断响应。</li>
+    <li>信号板 CAN 中断 (Pre=2) 低于 UART (Pre=1)：BT+UWB+CAN 同时密集到达时 CAN 帧被挤掉，加剧 #11 的位图卡死。</li>
+    <li>变体宏冲突：<code>main.c</code> 中 <code>SIDEBOARD_SERIAL_USART3</code> 仍引用 <code>Sideboard_R</code>，与"USART3=FLW 接收"复用同一物理 USART；同时启用两个宏会让 DMA RX 缓冲被两个解析器同时消费。</li>
+  </ol>
+
+  <hr>
+  <h2 id="top1" style="color:#ff6b6b;border-color:#ff6b6b">⚠ 最应优先解决：UWB 段强制清零保护标志 + errCode + enable</h2>
+  <p><strong>位置</strong>：<code>Src/main.c:334-351</code></p>
+<pre><code>flw_check_timeout();
+timeoutFlgADC    = 0;
+timeoutFlgSerial = 0;
+timeoutFlgGen    = 0;
+rtY_Left.z_errCode  = 0;
+rtY_Right.z_errCode = 0;
+enable = 1;
+input1[inIdx].cmd = uart_steer_cmd;
+input2[inIdx].cmd = uart_speed_cmd;</code></pre>
+  <h3>为什么优先</h3>
+  <p>这是把整套<strong>软硬件分级保护体系</strong>（过流斩波、过温关机、FOC 错误、超时、看门狗式报警）<strong>集中拆除</strong>的一段代码，性质属于"所有安全网同时失效"。其它漏洞最坏只是某项保护失效；这里是一笔抹掉。</p>
+  <h3>可能现象</h3>
+  <ul>
+    <li><strong>故障静默</strong>：错误蜂鸣 <code>if (rtY_Left.z_errCode || rtY_Right.z_errCode) beepCount(1,24,1)</code> 永远进不去；操作员不知道电机已经在报警。</li>
+    <li><strong>电机烧毁</strong>：FOC 检测到的堵转/相序错/霍尔故障/过流被即时擦除，<code>enableFin</code> 持续 true，PWM 一直打，电流超限直到 MOSFET/绕组热崩。</li>
+    <li><strong>MOSFET 爆管 / 电池过放</strong>：当 <code>bldc.c</code> 硬件级斩波在中断未触发的瞬间未能立刻关断时，errCode 是软件最后一道线，已被拆除。</li>
+    <li><strong>超时类故障被掩盖</strong>：传感器/数据线断开 → 应当 <code>timeoutFlg*=1</code>，但被强制 <code>enable=1</code> 继续跑，目标丢失但车仍按上一帧命令运动。</li>
+    <li><strong>flw_check_timeout 是唯一兜底</strong>：失帧 1 s 后才把 <code>uart_*_cmd=0</code>，期间车辆完全失控。</li>
+    <li><strong>二次故障级联</strong>：电机烧坏 → 霍尔信号异常 → FOC 仍被强制 enable → 进一步电流冲击 → 可能引燃电池/电线。</li>
+  </ul>
+  <h3>建议的最小修复</h3>
+<pre><code>flw_check_timeout();
+input1[inIdx].cmd = uart_steer_cmd;
+input2[inIdx].cmd = uart_speed_cmd;
+/* 不要再触碰 timeoutFlg* / z_errCode / enable */</code></pre>
+  <p><code>enable</code> 的初始置位仍走 main.c 上方的"初始小输入自动 enable"逻辑；FOC 错误码自然让蜂鸣器报警；超时仍生效。如果确实需要绕过 ADC 超时（因为没接油门刹车），应在 <code>Input_Init</code> 时把 <code>inIdx</code> 指向一个不会超时的虚拟输入源，而不是在主循环里每 5 ms 抹一次标志。</p>
 
   <hr>
   <p style="text-align:center;color:var(--muted);font-size:12px">Generated from source code analysis · V1.0</p>
