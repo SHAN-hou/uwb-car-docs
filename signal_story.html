@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>信号板的一天 · 故事版时序解读</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif; background:#0f172a; color:#e2e8f0; line-height:1.9; padding:20px 0; }
+  .wrap { max-width:720px; width:92%; margin:0 auto; }
+  h1 { font-size:22px; text-align:center; margin-bottom:4px; color:#fff; }
+  .sub { text-align:center; color:#94a3b8; font-size:13px; margin-bottom:30px; }
+  h2 { font-size:17px; color:#38bdf8; margin:36px 0 12px; padding-bottom:6px; border-bottom:1px solid #334155; }
+  .story { font-size:14px; color:#cbd5e1; margin:10px 0; }
+  .story strong { color:#fff; }
+  .char { display:inline-block; padding:2px 8px; border-radius:6px; font-size:12px; font-weight:700; margin-right:3px; }
+  .c-cpu { background:rgba(56,189,248,.15); color:#38bdf8; }
+  .c-bt { background:rgba(167,139,250,.15); color:#a78bfa; }
+  .c-uwb { background:rgba(52,211,153,.15); color:#34d399; }
+  .c-tof { background:rgba(251,191,36,.15); color:#fbbf24; }
+  .c-motor { background:rgba(248,113,113,.15); color:#f87171; }
+  .scene { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:16px 18px; margin:14px 0; }
+  .scene-title { font-size:13px; font-weight:700; color:#fbbf24; margin-bottom:8px; }
+  .timeline { background:#0f172a; border:1px solid #334155; border-radius:8px; padding:12px 14px; margin:12px 0; font-family:'Courier New',monospace; font-size:11px; line-height:1.6; color:#94a3b8; overflow-x:auto; white-space:pre; }
+  .dialog { margin:8px 0; padding-left:16px; border-left:3px solid #334155; }
+  .dialog .who { font-weight:700; font-size:13px; }
+  .dialog .say { font-size:13px; color:#94a3b8; margin:2px 0; }
+  .note { background:#1a1a2e; border:1px solid #334155; border-radius:8px; padding:10px 14px; margin:12px 0; font-size:12px; color:#94a3b8; }
+  .note strong { color:#fbbf24; }
+  code { background:#0f172a; padding:2px 5px; border-radius:3px; font-size:11px; color:#7dd3fc; border:1px solid #334155; }
+  .back { display:inline-block; color:#38bdf8; text-decoration:none; font-size:13px; margin-bottom:16px; }
+  .emoji { font-size:16px; margin-right:4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">← 返回首页</a>
+<h1>信号板的一天</h1>
+<p class="sub">用讲故事的方式，理解信号板从开机到行驶的每一个时刻</p>
+
+<p class="story">想象信号板是一个<strong>交通指挥官</strong>，坐在一个办公室里。他有三个信息来源和一个对讲机：</p>
+
+<div class="scene">
+<div class="scene-title">角色介绍</div>
+<p class="story">
+<span class="char c-bt">蓝牙小哥</span> — 负责传达老板（你）的命令："开工！" 或 "收工！"<br>
+<span class="char c-uwb">UWB雷达兵</span> — 负责报告目标人的位置："目标在前方3米，右偏15度！"<br>
+<span class="char c-tof">TOF哨兵</span> — 负责监视前方障碍物："左边0.8米有东西！中间1.2米有东西！右边清空！"<br>
+<span class="char c-motor">电机司机</span> — 坐在车上等命令，收到什么就执行什么，不会自己想<br>
+<span class="char c-cpu">指挥官(CPU)</span> — 信号板自己，每50ms做一次决策
+</p>
+</div>
+
+<h2>第一章 · 开机</h2>
+
+<p class="story">信号板上电。<span class="char c-cpu">指挥官</span>做了这些事：</p>
+
+<div class="dialog">
+<p class="who" style="color:#38bdf8">指挥官：</p>
+<p class="say">"初始化完毕。蓝牙频道开启，UWB频道开启，TOF雷达开启。"</p>
+<p class="say">"LED 闪6下表示活着。当前状态：<strong>待命</strong>（bt_armed = 0）"</p>
+<p class="say">"不管谁跟我说话，我现在只给电机司机发一个命令：<strong>别动</strong>。"</p>
+</div>
+
+<p class="story">此时每50ms，指挥官都在发停车帧：<code>$FLW,0,0,0,0,3</code></p>
+
+<div class="note">
+<strong>关键理解：</strong>即使没人说话，指挥官也不会闲着。他每50ms必须给电机司机一个指令。没有指令也是指令（停车）。
+</div>
+
+<h2>第二章 · 三个信息源同时工作</h2>
+
+<p class="story">信号板开机后，三个信息源<strong>同时、独立、不停地</strong>往指挥官桌上放小纸条：</p>
+
+<div class="scene">
+<div class="scene-title">蓝牙小哥（USART1 中断）</div>
+<p class="story">他<strong>很少说话</strong>。只有你按手机蓝牙按钮时，他才递一张纸条进来。</p>
+<p class="story">纸条上只写两种东西：<code>START</code> 或 <code>STOP</code></p>
+<p class="story">指挥官看到纸条，立刻改变自己的"开工状态"：</p>
+<div class="dialog">
+<p class="who" style="color:#a78bfa">蓝牙小哥：</p>
+<p class="say">*递纸条* "START"</p>
+<p class="who" style="color:#38bdf8">指挥官：</p>
+<p class="say">"收到！bt_armed = 1。LED亮。从现在开始我要认真工作了。"</p>
+</div>
+</div>
+
+<div class="scene">
+<div class="scene-title">UWB雷达兵（USART2 中断）</div>
+<p class="story">他<strong>每100ms</strong>往指挥官桌上放一张纸条，不管指挥官看不看。内容类似：</p>
+<p class="story"><code>$FLW,300,150,120,280,1</code> = "目标在前方300cm，右偏15.0度，坐标(120,280)，状态正常"</p>
+<p class="story">指挥官<strong>不是立即处理</strong>这张纸条。他只是把数字记在桌上的小白板：</p>
+<div class="dialog">
+<p class="who" style="color:#34d399">UWB雷达兵：</p>
+<p class="say">*放下纸条* "$FLW,300,150,120,280,1"</p>
+<p class="who" style="color:#38bdf8">指挥官：</p>
+<p class="say">*不抬头，随手在白板上更新* "距离=300，角度=150，时间戳=现在"</p>
+<p class="say">"等我到了决策时间再用这些数据。"</p>
+</div>
+<p class="story">如果500ms都没收到纸条，指挥官就认为<strong>雷达兵失联了</strong>。</p>
+</div>
+
+<div class="scene">
+<div class="scene-title">TOF哨兵（CAN1 中断）</div>
+<p class="story">他是最忙的。TOF传感器有<strong>64个像素</strong>（8×8的网格），每个像素一个CAN帧。他一口气连发64帧，大约每30-50ms一批。</p>
+<p class="story">指挥官有一张"打卡表"（<code>s_rx_mask</code>），64个格子。每收到一个像素的数据，就在对应格子打勾：</p>
+<div class="dialog">
+<p class="who" style="color:#fbbf24">TOF哨兵：</p>
+<p class="say">*递CAN帧* "像素#0：距离1.2m，状态正常"</p>
+<p class="say">*递CAN帧* "像素#1：距离0.8m，状态正常"</p>
+<p class="say">... (连续64帧)</p>
+<p class="say">*递CAN帧* "像素#63：距离2.1m，状态正常"</p>
+<p class="who" style="color:#38bdf8">指挥官：</p>
+<p class="say">*勾勾勾... 64个全勾上了！*</p>
+<p class="say">"好！一轮完整数据收齐。我来算一下前方三个区域的最近障碍物："</p>
+<p class="say">"左区：最近0.8m。中区：最近1.2m。右区：最近2.1m。"</p>
+<p class="say">"结果写好了，等决策时间用。清空打卡表，等下一轮。"</p>
+</div>
+</div>
+
+<div class="note">
+<strong>关键理解：</strong>三个信息源是"推送"模式。他们不等指挥官，各自按自己的节拍往桌上放纸条。指挥官只是<strong>更新白板</strong>，不立即行动。这就是为什么它们<strong>不会打架</strong>——都是写各自的区域，没有冲突。
+</div>
+
+<h2>第三章 · 每50ms的决策时刻（主循环核心）</h2>
+
+<p class="story">指挥官的闹钟每50ms响一次。闹钟响了，他做以下事情：</p>
+
+<div class="scene">
+<div class="scene-title">第一步：看看TOF有没有新情报</div>
+<div class="dialog">
+<p class="who" style="color:#38bdf8">指挥官：</p>
+<p class="say">"TOF那边有新数据吗？"</p>
+<p class="say">如果有 → "好，用新数据重新判断：前方有没有障碍？该怎么躲？"</p>
+<p class="say">如果没有 → "那就用上次的判断结果。"</p>
+</div>
+<p class="story">判断结果只有6种可能：<strong>无障碍 / 减速 / 左闪 / 右闪 / 顺时针转 / 逆时针转</strong></p>
+</div>
+
+<div class="scene">
+<div class="scene-title">第二步：做最终决策（4选1，永远只走一条路）</div>
+<p class="story">指挥官低头看4张卡片，<strong>从上到下依次检查，第一个满足的就执行</strong>：</p>
+
+<div class="dialog">
+<p class="who" style="color:#38bdf8">指挥官（自言自语）：</p>
+<p class="say"><strong>卡片A：</strong>"老板说收工了吗？（bt_armed == 0）"</p>
+<p class="say">→ 是 → <strong>"发停车帧。什么都不管。"</strong></p>
+<p class="say">→ 不是 → 看卡片B ↓</p>
+<p class="say">&nbsp;</p>
+<p class="say"><strong>卡片B：</strong>"TOF说要紧急闪避/脱困吗？（SHIFT或ROTATE）"</p>
+<p class="say">→ 是 → <strong>"UWB的数据我不管了，完全按TOF的指令转向。"</strong></p>
+<p class="say">→ 不是 → 看卡片C ↓</p>
+<p class="say">&nbsp;</p>
+<p class="say"><strong>卡片C：</strong>"UWB雷达兵还在线吗？（有数据 且 500ms内更新过）"</p>
+<p class="say">→ 是 → <strong>"用UWB数据跟随目标。如果TOF说要减速，就限一下速度。"</strong></p>
+<p class="say">→ 不是 → 看卡片D ↓</p>
+<p class="say">&nbsp;</p>
+<p class="say"><strong>卡片D：</strong>"以上都不满足"</p>
+<p class="say">→ <strong>"UWB失联了，发停车帧。"</strong></p>
+</div>
+</div>
+
+<div class="note">
+<strong>关键理解：</strong>这4张卡片就是if-else if结构。<strong>永远只走一条路</strong>。不存在"一边避障一边追UWB"的情况——避障时UWB被完全覆盖。这就是为什么<strong>信号不会打架</strong>。
+</div>
+
+<div class="scene">
+<div class="scene-title">第三步：组装帧 + 发送</div>
+<div class="dialog">
+<p class="who" style="color:#38bdf8">指挥官：</p>
+<p class="say">"决策完毕。组装命令帧：$FLW,300,-750,0,0,1"</p>
+<p class="say">*拿起对讲机（UART3）*</p>
+<p class="say">"电机司机，新指令来了！距离300，转向-750，执行！"</p>
+<p class="who" style="color:#f87171">电机司机：</p>
+<p class="say">"收到！距离300减去目标150等于150，乘以3等于450速度。"</p>
+<p class="say">"转向-750除以10等于-75度，乘以KP=4，右轮快左轮慢。"</p>
+<p class="say">"走了！"</p>
+</div>
+</div>
+
+<h2>第四章 · 一个完整的50ms长什么样</h2>
+
+<div class="timeline">
+时间   事件                              谁在干活
+─────────────────────────────────────────────────────
+0.0ms  CAN中断：TOF像素#17到达           TOF哨兵→打卡表
+0.1ms  CAN中断：TOF像素#18到达           TOF哨兵→打卡表
+0.3ms  UART2中断：UWB一个字节'$'          UWB雷达兵→拼行
+0.4ms  CAN中断：TOF像素#19到达           TOF哨兵→打卡表
+ ...   (中间很多CAN帧陆续到达)
+8.0ms  UART2中断：UWB '\n'换行符          UWB雷达兵→解析完成！
+       → sscanf → 写入白板: dist=310, angle=140
+ ...   (更多CAN帧)
+15ms   CAN中断：TOF像素#63到达！          打卡表全满✓
+       → 计算三区最小距离 → zone_ready=true
+ ...   (CPU在__WFI睡觉，等闹钟)
+50ms   ⏰ 闹钟响！主循环醒来              指挥官开始决策
+50.0ms 读zone → 有新数据 → 跑避障决策     结果：AVOID_NONE
+50.1ms 检查bt_armed=1 → 检查避障=NONE
+       → 检查UWB在线（age=42ms < 500ms）→ 走卡片C
+50.2ms build_avoid_frame:
+         angle = -140 * 5 = -700
+         dist = 310（无减速）
+       → 组装 "$FLW,310,-700,0,0,1\r\n"
+50.3ms uart3_send_str → 开始发送(~2.6ms)
+52.9ms 发送完毕
+53ms   __WFI() → CPU睡觉等下一个50ms
+ ...
+100ms  ⏰ 下一轮闹钟响...
+</div>
+
+<h2>第五章 · 避障接管的时刻</h2>
+
+<p class="story">车正在正常追目标。突然，TOF发现正前方0.5m有个垃圾桶：</p>
+
+<div class="scene">
+<div class="scene-title">避障触发</div>
+<div class="dialog">
+<p class="who" style="color:#fbbf24">TOF哨兵：</p>
+<p class="say">*64帧收齐* "中区最近距离：0.5m！"</p>
+<p class="who" style="color:#38bdf8">指挥官：</p>
+<p class="say">"0.5m < 危险线0.6m！中区危险！查决策表..."</p>
+<p class="say">"仅中区危险 → 左闪！steer=-1100, dist=180"</p>
+<p class="say">"结果存下来：oa_result = SHIFT_LEFT"</p>
+</div>
+</div>
+
+<div class="scene">
+<div class="scene-title">下一个50ms闹钟</div>
+<div class="dialog">
+<p class="who" style="color:#38bdf8">指挥官：</p>
+<p class="say">"卡片A：bt_armed=1，不停车。"</p>
+<p class="say">"卡片B：oa_result=SHIFT_LEFT，命中！"</p>
+<p class="say">"<strong>UWB的数据？不看了！避障优先！</strong>"</p>
+<p class="say">"组装帧：$FLW,180,-1100,0,0,1"</p>
+<p class="say">"电机司机，左转避障！"</p>
+<p class="who" style="color:#f87171">电机司机：</p>
+<p class="say">"收到！速度=(180-150)×3=90（慢慢走），方向大幅左转。"</p>
+</div>
+</div>
+
+<div class="scene">
+<div class="scene-title">避障结束</div>
+<p class="story">车左转了一点，下一轮TOF数据中区变成0.9m（大于0.6m）：</p>
+<div class="dialog">
+<p class="who" style="color:#38bdf8">指挥官：</p>
+<p class="say">"三区都不危险了。但0.9m < 1.0m，还在减速区。"</p>
+<p class="say">"oa_result = SLOW_DOWN"</p>
+<p class="say">"卡片B：SLOW_DOWN 不是 SHIFT/ROTATE，不命中。"</p>
+<p class="say">"卡片C：UWB在线。走卡片C！"</p>
+<p class="say">"用UWB数据跟随，但dist限制到200（减速）。"</p>
+</div>
+<p class="story">再过一帧，0.9m→1.1m→完全安全 → AVOID_NONE → 恢复纯UWB跟随。</p>
+</div>
+
+<h2>第六章 · 故障场景</h2>
+
+<div class="scene">
+<div class="scene-title">故障1：UWB掉线了</div>
+<div class="dialog">
+<p class="who" style="color:#34d399">UWB雷达兵：</p>
+<p class="say">*突然安静了...*</p>
+<p class="who" style="color:#38bdf8">指挥官（300ms后）：</p>
+<p class="say">"最后一张纸条是300ms前的...还行..."</p>
+<p class="who" style="color:#38bdf8">指挥官（500ms后）：</p>
+<p class="say">"已经500ms没消息了！UWB失联！"</p>
+<p class="say">"卡片C不满足了 → 走卡片D → 停车帧！"</p>
+<p class="say">"电机司机，停！"</p>
+</div>
+</div>
+
+<div class="scene">
+<div class="scene-title">故障2：TOF丢了1帧CAN（当前bug）</div>
+<div class="dialog">
+<p class="who" style="color:#fbbf24">TOF哨兵：</p>
+<p class="say">像素#0~#62全到了... #63的CAN帧被干扰丢了</p>
+<p class="who" style="color:#38bdf8">指挥官：</p>
+<p class="say">"打卡表63个勾，差1个... 等..."</p>
+<p class="say">"下一轮64帧又开始了，像素#0覆盖了旧#0..."</p>
+<p class="say">"但打卡表永远差那1个！zone_ready永远不会来！"</p>
+<p class="say">"<strong>我只能一直用上一次的避障结果...</strong>"</p>
+<p class="say">"如果上次是左闪，我就<strong>永远左闪下去</strong>..."</p>
+</div>
+<p class="story" style="color:#f87171"><strong>这就是P6 bug。没有超时机制，一帧丢失就永久冻结。</strong></p>
+</div>
+
+<div class="scene">
+<div class="scene-title">故障3：按了STOP再按START</div>
+<div class="dialog">
+<p class="who" style="color:#a78bfa">蓝牙小哥：</p>
+<p class="say">"STOP" → bt_armed=0 → 车停了</p>
+<p class="say">（过了10秒）</p>
+<p class="say">"START" → bt_armed=1</p>
+<p class="who" style="color:#38bdf8">指挥官：</p>
+<p class="say">"好，开工！卡片A不满足了。"</p>
+<p class="say">"卡片B：oa_result... 上次可能是NONE。不满足。"</p>
+<p class="say">"卡片C：UWB在线吗？最后一张纸条是<strong>10秒前</strong>的..."</p>
+<p class="say">"10000ms >> 500ms，超时了！走卡片D → 停车。"</p>
+<p class="say">"只能等UWB雷达兵重新发来新数据..."</p>
+<p class="who" style="color:#34d399">UWB雷达兵（1-3秒后）：</p>
+<p class="say">"*重新锁定目标* $FLW,280,50,..."</p>
+<p class="who" style="color:#38bdf8">指挥官：</p>
+<p class="say">"终于来了！恢复跟随！"</p>
+</div>
+<p class="story" style="color:#fbbf24">这就是"START后要等几秒才动"的原因——UWB重建跟踪需要时间。</p>
+</div>
+
+<h2>总结：指挥官的工作节奏</h2>
+
+<div class="scene">
+<div class="scene-title">一句话总结</div>
+<p class="story">
+<strong>三个人往桌上放纸条（中断，随时来），指挥官每50ms看一次桌面做一个决策（主循环），然后对着对讲机喊一句话（UART3发帧）。</strong>
+</p>
+<p class="story">
+决策永远是4选1。不会同时执行两个命令。不会卡死（除了TOF丢帧bug）。不会打架（if-else互斥）。
+</p>
+</div>
+
+</div>
+</body>
+</html>
