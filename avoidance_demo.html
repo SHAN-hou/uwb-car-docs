@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TOFSense 避障系统动画演示</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0e1a; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; overflow: hidden; }
+
+.container { display: flex; height: 100vh; }
+.canvas-area { flex: 1; position: relative; }
+canvas { display: block; width: 100%; height: 100%; }
+
+.panel {
+  width: 320px; background: #111827; border-left: 1px solid #1e293b;
+  padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px;
+}
+.panel h2 { font-size: 15px; color: #60a5fa; border-bottom: 1px solid #1e293b; padding-bottom: 8px; }
+.param-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.param-row label { font-size: 12px; color: #94a3b8; flex-shrink: 0; }
+.param-row input[type=range] { flex: 1; accent-color: #3b82f6; }
+.param-row .val { font-size: 12px; color: #fbbf24; width: 50px; text-align: right; font-variant-numeric: tabular-nums; }
+
+.status-box {
+  background: #1e293b; border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.8;
+}
+.status-box .lbl { color: #64748b; }
+.status-box .v { color: #fbbf24; font-weight: 600; }
+.action-tag {
+  display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 700;
+}
+.action-OK   { background: #064e3b; color: #34d399; }
+.action-SLO  { background: #713f12; color: #fbbf24; }
+.action-L    { background: #1e3a5f; color: #60a5fa; }
+.action-R    { background: #3b1f6e; color: #a78bfa; }
+.action-CW   { background: #5b2133; color: #f472b6; }
+.action-CCW  { background: #5b2133; color: #f472b6; }
+
+.legend { font-size: 11px; color: #64748b; line-height: 1.6; }
+.legend b { color: #94a3b8; }
+
+.bt-output {
+  background: #000; border-radius: 6px; padding: 8px 10px;
+  font-family: 'Consolas', monospace; font-size: 12px; color: #4ade80;
+  height: 60px; overflow: hidden; white-space: pre; line-height: 1.5;
+}
+
+.instructions {
+  background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px;
+  padding: 10px; font-size: 11px; color: #8888aa; line-height: 1.6;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="canvas-area">
+    <canvas id="cv"></canvas>
+  </div>
+  <div class="panel">
+    <h2>控制面板</h2>
+
+    <div class="instructions">
+      <b style="color:#60a5fa">操作:</b> 鼠标点击/拖拽放置障碍物<br>
+      右键删除障碍物 · 滚轮调整障碍物大小<br>
+      <b style="color:#fbbf24">黄色人形</b> = UWB目标 (可拖拽)
+    </div>
+
+    <h2>避障参数</h2>
+    <div class="param-row">
+      <label>危险距离</label>
+      <input type="range" id="s_danger" min="15" max="80" value="37">
+      <span class="val" id="v_danger">0.37m</span>
+    </div>
+    <div class="param-row">
+      <label>减速距离</label>
+      <input type="range" id="s_slow" min="40" max="200" value="100">
+      <span class="val" id="v_slow">1.00m</span>
+    </div>
+    <div class="param-row">
+      <label>闪避角度</label>
+      <input type="range" id="s_shift_angle" min="200" max="1200" value="600">
+      <span class="val" id="v_shift_angle">600</span>
+    </div>
+    <div class="param-row">
+      <label>闪避速度</label>
+      <input type="range" id="s_shift_dist" min="130" max="250" value="180">
+      <span class="val" id="v_shift_dist">180</span>
+    </div>
+
+    <h2>实时状态</h2>
+    <div class="status-box" id="statusBox">
+      <span class="lbl">左区:</span> <span class="v" id="st_L">--</span> m &nbsp;
+      <span class="lbl">中区:</span> <span class="v" id="st_M">--</span> m &nbsp;
+      <span class="lbl">右区:</span> <span class="v" id="st_R">--</span> m<br>
+      <span class="lbl">动作:</span> <span id="st_action" class="action-tag action-OK">OK</span><br>
+      <span class="lbl">发送帧:</span> <span class="v" id="st_frame" style="font-size:11px">--</span>
+    </div>
+
+    <h2>蓝牙调试输出</h2>
+    <div class="bt-output" id="btOutput">等待启动...</div>
+
+    <div class="legend">
+      <b>图例:</b><br>
+      🟢 绿色扇形 = 安全区 (>1m)<br>
+      🟡 黄色扇形 = 减速区 (37cm~1m)<br>
+      🔴 红色扇形 = 危险区 (<37cm)<br>
+      ⬜ 白色箭头 = 车当前行驶方向<br>
+      🔵 蓝色虚线 = 到UWB目标的连线
+    </div>
+  </div>
+</div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+// --- State ---
+let W, H;
+const car = { x: 0, y: 0, angle: -Math.PI/2, speed: 0, steer: 0 };
+const target = { x: 0, y: 0 }; // UWB target (person)
+let obstacles = [];
+let dragging = null; // 'target' | obstacle index
+let resizingObs = -1;
+
+// --- Params ---
+let P = {
+  danger: 37, slow: 100, shiftAngle: 600, shiftDist: 180
+};
+
+function resize() {
+  const r = cv.parentElement.getBoundingClientRect();
+  cv.width = W = r.width * devicePixelRatio;
+  cv.height = H = r.height * devicePixelRatio;
+  cv.style.width = r.width + 'px';
+  cv.style.height = r.height + 'px';
+
+  if (car.x === 0) {
+    car.x = W * 0.5; car.y = H * 0.65;
+    target.x = W * 0.5; target.y = H * 0.2;
+  }
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Scale: 1m = px
+const SCALE = () => Math.min(W, H) * 0.25;
+
+// --- Slider bindings ---
+function bindSlider(id, vid, key, fmt) {
+  const el = document.getElementById(id);
+  const vl = document.getElementById(vid);
+  el.addEventListener('input', () => { P[key] = +el.value; vl.textContent = fmt(+el.value); });
+  vl.textContent = fmt(+el.value);
+}
+bindSlider('s_danger', 'v_danger', 'danger', v => (v/100).toFixed(2)+'m');
+bindSlider('s_slow', 'v_slow', 'slow', v => (v/100).toFixed(2)+'m');
+bindSlider('s_shift_angle', 'v_shift_angle', 'shiftAngle', v => v+'');
+bindSlider('s_shift_dist', 'v_shift_dist', 'shiftDist', v => v+'');
+
+// --- Mouse ---
+function canvasPos(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * devicePixelRatio, y: (e.clientY - r.top) * devicePixelRatio };
+}
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+cv.addEventListener('mousedown', e => {
+  e.preventDefault();
+  const p = canvasPos(e);
+  if (e.button === 2) { // right click: remove
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      if (dist(p, obstacles[i]) < obstacles[i].r) { obstacles.splice(i, 1); break; }
+    }
+    return;
+  }
+  if (dist(p, target) < 30 * devicePixelRatio) { dragging = 'target'; return; }
+  for (let i = 0; i < obstacles.length; i++) {
+    if (dist(p, obstacles[i]) < obstacles[i].r) { dragging = i; return; }
+  }
+  obstacles.push({ x: p.x, y: p.y, r: 25 * devicePixelRatio });
+  dragging = obstacles.length - 1;
+});
+cv.addEventListener('mousemove', e => {
+  if (dragging === null) return;
+  const p = canvasPos(e);
+  if (dragging === 'target') { target.x = p.x; target.y = p.y; }
+  else { obstacles[dragging].x = p.x; obstacles[dragging].y = p.y; }
+});
+cv.addEventListener('mouseup', () => { dragging = null; });
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('wheel', e => {
+  const p = canvasPos(e);
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    if (dist(p, obstacles[i]) < obstacles[i].r + 20) {
+      obstacles[i].r = Math.max(10, Math.min(120 * devicePixelRatio, obstacles[i].r - e.deltaY * 0.3));
+      break;
+    }
+  }
+});
+
+// --- Sensor simulation ---
+function castRay(ox, oy, angle, maxDist) {
+  let minD = maxDist;
+  for (const ob of obstacles) {
+    const dx = ob.x - ox, dy = ob.y - oy;
+    const proj = dx * Math.cos(angle) + dy * Math.sin(angle);
+    if (proj < 0) continue;
+    const perp = Math.abs(-dx * Math.sin(angle) + dy * Math.cos(angle));
+    if (perp < ob.r) {
+      const hit = proj - Math.sqrt(Math.max(0, ob.r * ob.r - perp * perp));
+      if (hit > 0 && hit < minD) minD = hit;
+    }
+  }
+  return minD;
+}
+
+function senseZone(cx, cy, carAngle, zoneAngleOffset, fov, numRays, maxDistPx) {
+  let minD = maxDistPx;
+  const startA = carAngle + zoneAngleOffset - fov / 2;
+  for (let i = 0; i < numRays; i++) {
+    const a = startA + fov * i / (numRays - 1);
+    const d = castRay(cx, cy, a, maxDistPx);
+    if (d < minD) minD = d;
+  }
+  return minD;
+}
+
+// --- Avoidance logic (mirrors tofsense_can.c) ---
+function avoidDanger(L, M, R, dangerPx, cfg) {
+  const D = dangerPx;
+  const lD = L < D, mD = M < D, rD = R < D;
+  if (rD && mD && lD) return { action: 'CCW', desc: '三面围堵→旋转' };
+  if (rD && mD) return { action: 'L', desc: '右+中堵→左闪' };
+  if (mD && lD) return { action: 'R', desc: '左+中堵→右闪' };
+  if (rD && lD) return { action: 'L', desc: '左右堵→左闪' };
+  if (rD) return { action: 'L', desc: '右堵→左闪' };
+  if (mD) return { action: 'L', desc: '中堵→左闪' };
+  if (lD) return { action: 'R', desc: '左堵→右闪' };
+  return { action: 'OK', desc: '正常跟随' };
+}
+
+// --- Drawing ---
+function drawCar(x, y, angle) {
+  const s = SCALE() * 0.12;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  // Body
+  ctx.fillStyle = '#334155';
+  ctx.strokeStyle = '#60a5fa';
+  ctx.lineWidth = 2 * devicePixelRatio;
+  const bw = s * 1.2, bh = s * 1.8;
+  ctx.beginPath();
+  ctx.roundRect(-bw/2, -bh/2, bw, bh, 4);
+  ctx.fill(); ctx.stroke();
+
+  // Wheels
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#475569';
+  ctx.lineWidth = 1.5 * devicePixelRatio;
+  const ww = s*0.25, wh = s*0.5;
+  [[-bw/2 - ww/2, -bh*0.3], [bw/2 - ww/2, -bh*0.3],
+   [-bw/2 - ww/2, bh*0.3], [bw/2 - ww/2, bh*0.3]].forEach(([wx, wy]) => {
+    ctx.fillRect(wx, wy - wh/2, ww, wh);
+    ctx.strokeRect(wx, wy - wh/2, ww, wh);
+  });
+
+  // Direction arrow
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.moveTo(0, -bh/2 - s*0.3);
+  ctx.lineTo(-s*0.2, -bh/2 + s*0.05);
+  ctx.lineTo(s*0.2, -bh/2 + s*0.05);
+  ctx.fill();
+
+  // Label
+  ctx.fillStyle = '#60a5fa';
+  ctx.font = `${10 * devicePixelRatio}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('车', 0, s * 0.15);
+
+  ctx.restore();
+}
+
+function drawTarget(x, y) {
+  const s = 14 * devicePixelRatio;
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Head
+  ctx.fillStyle = '#fbbf24';
+  ctx.beginPath(); ctx.arc(0, -s*1.2, s*0.4, 0, Math.PI*2); ctx.fill();
+  // Body
+  ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 3 * devicePixelRatio;
+  ctx.beginPath(); ctx.moveTo(0, -s*0.8); ctx.lineTo(0, s*0.3); ctx.stroke();
+  // Arms
+  ctx.beginPath(); ctx.moveTo(-s*0.6, -s*0.3); ctx.lineTo(s*0.6, -s*0.3); ctx.stroke();
+  // Legs
+  ctx.beginPath(); ctx.moveTo(0, s*0.3); ctx.lineTo(-s*0.5, s); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, s*0.3); ctx.lineTo(s*0.5, s); ctx.stroke();
+
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = `bold ${10 * devicePixelRatio}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('UWB目标', 0, s * 1.6);
+  ctx.restore();
+}
+
+function drawSensorFan(cx, cy, carAngle, zoneDist, dangerPx, slowPx, maxPx, offset, fov) {
+  const drawDist = Math.min(zoneDist, maxPx);
+  let color;
+  if (zoneDist < dangerPx) color = 'rgba(239,68,68,0.2)';
+  else if (zoneDist < slowPx) color = 'rgba(251,191,36,0.15)';
+  else color = 'rgba(74,222,128,0.1)';
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(carAngle + offset);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.arc(0, 0, drawDist, -fov/2, fov/2);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  // Border
+  if (zoneDist < dangerPx) ctx.strokeStyle = 'rgba(239,68,68,0.6)';
+  else if (zoneDist < slowPx) ctx.strokeStyle = 'rgba(251,191,36,0.4)';
+  else ctx.strokeStyle = 'rgba(74,222,128,0.3)';
+  ctx.lineWidth = 1.5 * devicePixelRatio;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawObstacle(ob) {
+  const grad = ctx.createRadialGradient(ob.x, ob.y, 0, ob.x, ob.y, ob.r);
+  grad.addColorStop(0, 'rgba(239,68,68,0.5)');
+  grad.addColorStop(1, 'rgba(239,68,68,0.1)');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(ob.x, ob.y, ob.r, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(239,68,68,0.7)';
+  ctx.lineWidth = 2 * devicePixelRatio;
+  ctx.stroke();
+
+  ctx.fillStyle = '#ef4444';
+  ctx.font = `bold ${11 * devicePixelRatio}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('障碍', ob.x, ob.y + 4 * devicePixelRatio);
+}
+
+function drawDashedLine(x1, y1, x2, y2, color) {
+  ctx.setLineDash([8 * devicePixelRatio, 6 * devicePixelRatio]);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5 * devicePixelRatio;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawRangeRing(cx, cy, radiusPx, color, label) {
+  ctx.setLineDash([4 * devicePixelRatio, 4 * devicePixelRatio]);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1 * devicePixelRatio;
+  ctx.beginPath(); ctx.arc(cx, cy, radiusPx, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = color;
+  ctx.font = `${9 * devicePixelRatio}px sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.fillText(label, cx + radiusPx + 4, cy);
+}
+
+// --- Movement arrow ---
+function drawMovementArrow(cx, cy, angle, moveAngle, strength, color) {
+  const len = SCALE() * 0.2 * strength;
+  const ex = cx + Math.cos(moveAngle) * len;
+  const ey = cy + Math.sin(moveAngle) * len;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3 * devicePixelRatio;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
+  // Arrowhead
+  const headLen = 10 * devicePixelRatio;
+  const a = Math.atan2(ey - cy, ex - cx);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(ex, ey);
+  ctx.lineTo(ex - headLen * Math.cos(a - 0.4), ey - headLen * Math.sin(a - 0.4));
+  ctx.lineTo(ex - headLen * Math.cos(a + 0.4), ey - headLen * Math.sin(a + 0.4));
+  ctx.fill();
+}
+
+// --- BT output ---
+const btEl = document.getElementById('btOutput');
+let btLines = [];
+let btTimer = 0;
+
+function addBtLine(text) {
+  btLines.push(text);
+  if (btLines.length > 3) btLines.shift();
+  btEl.textContent = btLines.join('\n');
+}
+
+// --- Main loop ---
+let lastT = 0;
+let turnFlag = 0;
+
+function frame(t) {
+  const dt = Math.min((t - lastT) / 1000, 0.05);
+  lastT = t;
+
+  const sc = SCALE();
+  const dangerPx = P.danger / 100 * sc;
+  const slowPx = P.slow / 100 * sc;
+  const maxSensePx = sc * 2;
+
+  // Sense zones
+  const zoneFov = Math.PI / 6; // 30deg each
+  const L = senseZone(car.x, car.y, car.angle, -Math.PI/6, zoneFov, 8, maxSensePx);
+  const M = senseZone(car.x, car.y, car.angle, 0,           zoneFov, 8, maxSensePx);
+  const R = senseZone(car.x, car.y, car.angle, Math.PI/6,  zoneFov, 8, maxSensePx);
+
+  // Avoidance decision
+  const av = avoidDanger(L, M, R, dangerPx);
+
+  // Slowdown check
+  const minD = Math.min(L, M, R);
+  let finalAction = av.action;
+  if (finalAction === 'OK' && minD < slowPx) finalAction = 'SLO';
+
+  // Car physics: follow target + avoidance
+  const toTargetAngle = Math.atan2(target.y - car.y, target.x - car.x);
+  const targetDist = dist(car, target);
+  const targetDistM = targetDist / sc;
+
+  let desiredAngle = car.angle;
+  let desiredSpeed = 0;
+
+  if (finalAction === 'OK') {
+    desiredAngle = toTargetAngle;
+    desiredSpeed = targetDistM > 1.2 ? Math.min((targetDistM - 1.2) * 0.8, 1.0) : 0;
+  } else if (finalAction === 'SLO') {
+    desiredAngle = toTargetAngle;
+    desiredSpeed = targetDistM > 1.2 ? Math.min((targetDistM - 1.2) * 0.3, 0.4) : 0;
+  } else if (finalAction === 'L') {
+    desiredAngle = car.angle - (P.shiftAngle / 600) * Math.PI / 3;
+    desiredSpeed = 0.5 * (P.shiftDist / 180);
+  } else if (finalAction === 'R') {
+    desiredAngle = car.angle + (P.shiftAngle / 600) * Math.PI / 3;
+    desiredSpeed = 0.5 * (P.shiftDist / 180);
+  } else if (finalAction === 'CCW') {
+    desiredAngle = car.angle - Math.PI / 2;
+    desiredSpeed = 0.15;
+  } else if (finalAction === 'CW') {
+    desiredAngle = car.angle + Math.PI / 2;
+    desiredSpeed = 0.15;
+  }
+
+  // Smooth turn
+  let da = desiredAngle - car.angle;
+  while (da > Math.PI) da -= Math.PI * 2;
+  while (da < -Math.PI) da += Math.PI * 2;
+  car.angle += da * Math.min(dt * 4, 1);
+  car.speed += (desiredSpeed - car.speed) * Math.min(dt * 6, 1);
+
+  // Move
+  car.x += Math.cos(car.angle) * car.speed * sc * dt;
+  car.y += Math.sin(car.angle) * car.speed * sc * dt;
+
+  // Keep in bounds
+  const margin = 40;
+  car.x = Math.max(margin, Math.min(W - margin, car.x));
+  car.y = Math.max(margin, Math.min(H - margin, car.y));
+
+  // --- Draw ---
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 1;
+  const gs = 40 * devicePixelRatio;
+  for (let x = 0; x < W; x += gs) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += gs) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  // Range rings
+  drawRangeRing(car.x, car.y, dangerPx, 'rgba(239,68,68,0.4)', `${P.danger}cm 危险`);
+  drawRangeRing(car.x, car.y, slowPx, 'rgba(251,191,36,0.3)', `${P.slow}cm 减速`);
+
+  // Sensor fans
+  drawSensorFan(car.x, car.y, car.angle, L, dangerPx, slowPx, maxSensePx, -Math.PI/6, zoneFov);
+  drawSensorFan(car.x, car.y, car.angle, M, dangerPx, slowPx, maxSensePx, 0, zoneFov);
+  drawSensorFan(car.x, car.y, car.angle, R, dangerPx, slowPx, maxSensePx, Math.PI/6, zoneFov);
+
+  // Target line
+  drawDashedLine(car.x, car.y, target.x, target.y, 'rgba(96,165,250,0.3)');
+
+  // Movement arrow
+  if (car.speed > 0.02) {
+    const arrowColor = finalAction === 'OK' ? '#4ade80' :
+                       finalAction === 'SLO' ? '#fbbf24' :
+                       (finalAction === 'L' || finalAction === 'R') ? '#60a5fa' : '#f472b6';
+    drawMovementArrow(car.x, car.y, car.angle, car.angle, Math.min(car.speed / 0.5, 1), arrowColor);
+  }
+
+  // Obstacles
+  obstacles.forEach(drawObstacle);
+
+  // Car & target
+  drawCar(car.x, car.y, car.angle);
+  drawTarget(target.x, target.y);
+
+  // --- UI update ---
+  const Lm = (L / sc).toFixed(2), Mm = (M / sc).toFixed(2), Rm = (R / sc).toFixed(2);
+  document.getElementById('st_L').textContent = Lm;
+  document.getElementById('st_M').textContent = Mm;
+  document.getElementById('st_R').textContent = Rm;
+
+  const actionEl = document.getElementById('st_action');
+  const actMap = {
+    'OK':  ['OK 正常跟随', 'action-OK'],
+    'SLO': ['SLO 减速', 'action-SLO'],
+    'L':   ['◀ 左闪', 'action-L'],
+    'R':   ['▶ 右闪', 'action-R'],
+    'CW':  ['↻ 顺时针', 'action-CW'],
+    'CCW': ['↺ 逆时针', 'action-CCW'],
+  };
+  const [actText, actClass] = actMap[finalAction] || ['--', 'action-OK'];
+  actionEl.textContent = actText;
+  actionEl.className = 'action-tag ' + actClass;
+
+  // Frame
+  let frameDist, frameAngle;
+  const actNames = { 'OK':'OK', 'SLO':'SLO', 'L':'<L', 'R':'R>', 'CW':'CW', 'CCW':'CCW' };
+  if (finalAction === 'L') { frameDist = P.shiftDist; frameAngle = -P.shiftAngle; }
+  else if (finalAction === 'R') { frameDist = P.shiftDist; frameAngle = P.shiftAngle; }
+  else if (finalAction === 'CW') { frameDist = 130; frameAngle = 900; }
+  else if (finalAction === 'CCW') { frameDist = 130; frameAngle = -900; }
+  else if (finalAction === 'SLO') { frameDist = 145; frameAngle = 0; }
+  else { frameDist = Math.round(targetDistM * 100); frameAngle = 0; }
+  document.getElementById('st_frame').textContent = `$FLW,${frameDist},${frameAngle},0,0,1`;
+
+  // BT output (every ~500ms)
+  btTimer += dt;
+  if (btTimer >= 0.5) {
+    btTimer = 0;
+    addBtLine(`T:L${Lm} M${Mm} R${Rm} ${actNames[finalAction] || 'OK'}`);
+  }
+
+  requestAnimationFrame(frame);
+}
+
+// Add initial obstacles
+resize();
+obstacles.push(
+  { x: W * 0.35, y: H * 0.4, r: 30 * devicePixelRatio },
+  { x: W * 0.65, y: H * 0.35, r: 40 * devicePixelRatio },
+);
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小车系统运行流程 - 交互式演示</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+.header { text-align: center; padding: 20px; border-bottom: 1px solid #1e293b; }
+.header h1 { font-size: 22px; color: #60a5fa; }
+.header p { font-size: 13px; color: #64748b; margin-top: 4px; }
+
+.main { display: flex; height: calc(100vh - 80px); }
+
+/* Left: Hardware diagram */
+.hw-panel { width: 380px; border-right: 1px solid #1e293b; padding: 16px; overflow-y: auto; }
+.hw-panel h3 { font-size: 13px; color: #94a3b8; margin-bottom: 12px; }
+
+.hw-box {
+  background: #1e293b; border: 2px solid #334155; border-radius: 10px;
+  padding: 12px; margin-bottom: 10px; position: relative; transition: all 0.3s;
+}
+.hw-box.active { border-color: #3b82f6; box-shadow: 0 0 12px rgba(59,130,246,0.3); }
+.hw-box .name { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+.hw-box .chip { font-size: 11px; color: #64748b; }
+.hw-box .status { font-size: 11px; color: #4ade80; margin-top: 6px; font-family: monospace; min-height: 16px; }
+.hw-box .status.off { color: #64748b; }
+.hw-box .status.warn { color: #fbbf24; }
+.hw-box .status.err { color: #ef4444; }
+
+.hw-box .led {
+  position: absolute; top: 12px; right: 12px; width: 10px; height: 10px;
+  border-radius: 50%; background: #334155; transition: all 0.2s;
+}
+.hw-box .led.on { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+.hw-box .led.blink { animation: blink 0.3s infinite alternate; }
+@keyframes blink { from { background: #334155; } to { background: #4ade80; box-shadow: 0 0 6px #4ade80; } }
+
+.conn-line { font-size: 11px; color: #475569; text-align: center; padding: 4px 0; font-family: monospace; }
+.conn-line.active { color: #3b82f6; }
+
+/* Center: Flow animation */
+.flow-panel { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+
+.phase-bar {
+  display: flex; gap: 4px; margin-bottom: 8px;
+}
+.phase-dot {
+  flex: 1; height: 6px; border-radius: 3px; background: #1e293b; transition: background 0.5s;
+}
+.phase-dot.done { background: #4ade80; }
+.phase-dot.current { background: #3b82f6; animation: pulse 1s infinite alternate; }
+@keyframes pulse { from { opacity: 0.6; } to { opacity: 1; } }
+
+.phase-label { font-size: 12px; color: #64748b; display: flex; justify-content: space-between; margin-bottom: 12px; }
+
+.data-flow-box {
+  background: #1e293b; border-radius: 8px; padding: 14px; flex: 1; overflow-y: auto;
+}
+.data-flow-box h4 { font-size: 13px; color: #60a5fa; margin-bottom: 10px; }
+
+.flow-item {
+  display: flex; align-items: center; gap: 8px; padding: 6px 0;
+  border-bottom: 1px solid #0f172a; font-size: 12px; opacity: 0;
+  animation: fadeIn 0.3s forwards;
+}
+@keyframes fadeIn { to { opacity: 1; } }
+
+.flow-item .arrow { color: #3b82f6; font-weight: 700; min-width: 24px; text-align: center; }
+.flow-item .src { color: #94a3b8; min-width: 70px; }
+.flow-item .msg { font-family: monospace; color: #fbbf24; flex: 1; font-size: 11px; }
+.flow-item .dest { color: #94a3b8; min-width: 60px; text-align: right; }
+
+/* Right: Controls */
+.ctrl-panel { width: 280px; border-left: 1px solid #1e293b; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.ctrl-panel h3 { font-size: 13px; color: #94a3b8; }
+
+.btn {
+  padding: 12px; border: none; border-radius: 8px; font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: all 0.2s; width: 100%;
+}
+.btn:active { transform: scale(0.97); }
+.btn-start { background: #065f46; color: #34d399; }
+.btn-start:hover { background: #047857; }
+.btn-stop { background: #7f1d1d; color: #fca5a5; }
+.btn-stop:hover { background: #991b1b; }
+.btn-reset { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+.btn-reset:hover { background: #334155; }
+
+.scenario-box { background: #1e293b; border-radius: 8px; padding: 12px; }
+.scenario-box h4 { font-size: 12px; color: #60a5fa; margin-bottom: 8px; }
+.scenario-btn {
+  display: block; width: 100%; padding: 8px 10px; margin-bottom: 6px;
+  background: #0f172a; border: 1px solid #334155; border-radius: 6px;
+  color: #e2e8f0; font-size: 11px; cursor: pointer; text-align: left; transition: all 0.2s;
+}
+.scenario-btn:hover { border-color: #3b82f6; background: #1e293b; }
+.scenario-btn.active { border-color: #3b82f6; background: #1e3a5f; }
+
+.motor-gauge {
+  background: #0f172a; border-radius: 8px; padding: 12px; margin-top: 8px;
+}
+.motor-gauge h4 { font-size: 12px; color: #94a3b8; margin-bottom: 8px; }
+.gauge-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.gauge-row .lbl { font-size: 11px; color: #64748b; width: 50px; }
+.gauge-bar { flex: 1; height: 8px; background: #1e293b; border-radius: 4px; overflow: hidden; margin: 0 8px; position: relative; }
+.gauge-fill { height: 100%; border-radius: 4px; transition: width 0.3s, background 0.3s; position: absolute; }
+.gauge-fill.pos { left: 50%; background: #4ade80; }
+.gauge-fill.neg { right: 50%; background: #f472b6; }
+.gauge-val { font-size: 11px; color: #fbbf24; width: 40px; text-align: right; font-family: monospace; }
+
+.frame-display {
+  background: #000; border-radius: 6px; padding: 8px 10px;
+  font-family: monospace; font-size: 11px; color: #4ade80;
+  min-height: 40px; line-height: 1.6; word-break: break-all;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🚗 小车系统运行流程 - 交互式演示</h1>
+  <p>从上电到跟随运行的完整数据流可视化</p>
+</div>
+
+<div class="main">
+  <!-- Hardware -->
+  <div class="hw-panel">
+    <h3>硬件状态</h3>
+
+    <div class="hw-box" id="hw_tof">
+      <div class="led" id="led_tof"></div>
+      <div class="name">TOFSense-M</div>
+      <div class="chip">激光雷达 8×8像素 · CAN 1Mbps</div>
+      <div class="status off" id="st_tof">未上电</div>
+    </div>
+
+    <div class="conn-line" id="conn_can">│ CAN ↕ │</div>
+
+    <div class="hw-box" id="hw_sig">
+      <div class="led" id="led_sig"></div>
+      <div class="name">信号板 C8T6</div>
+      <div class="chip">STM32F103C8 72MHz · 避障决策 + 帧转发</div>
+      <div class="status off" id="st_sig">未上电</div>
+    </div>
+
+    <div class="conn-line" id="conn_uwb">│ UART2 ↕ │</div>
+
+    <div class="hw-box" id="hw_uwb">
+      <div class="led" id="led_uwb"></div>
+      <div class="name">BU04 UWB</div>
+      <div class="chip">定位模组 · 输出 $FLW 帧</div>
+      <div class="status off" id="st_uwb">未上电</div>
+    </div>
+
+    <div class="conn-line" id="conn_bt">│ UART1 ↕ │</div>
+
+    <div class="hw-box" id="hw_bt">
+      <div class="led" id="led_bt"></div>
+      <div class="name">HC-04 蓝牙</div>
+      <div class="chip">用户遥控 · START/STOP</div>
+      <div class="status off" id="st_bt">未连接</div>
+    </div>
+
+    <div class="conn-line" id="conn_motor">│ UART3 ↓ │</div>
+
+    <div class="hw-box" id="hw_motor">
+      <div class="led" id="led_motor"></div>
+      <div class="name">电机驱动板 RCT6</div>
+      <div class="chip">FOC BLDC 控制 · 解析 $FLW → 左右电机</div>
+      <div class="status off" id="st_motor">未上电</div>
+    </div>
+  </div>
+
+  <!-- Flow -->
+  <div class="flow-panel">
+    <div class="phase-bar">
+      <div class="phase-dot" id="ph0"></div>
+      <div class="phase-dot" id="ph1"></div>
+      <div class="phase-dot" id="ph2"></div>
+      <div class="phase-dot" id="ph3"></div>
+    </div>
+    <div class="phase-label">
+      <span>① 初始化</span><span>② 待机</span><span>③ 跟随+避障</span><span>④ 停车</span>
+    </div>
+
+    <div class="data-flow-box" id="flowBox">
+      <h4 id="flowTitle">等待上电...</h4>
+      <div id="flowItems"></div>
+    </div>
+
+    <div style="margin-top:8px">
+      <div style="font-size:11px;color:#64748b;margin-bottom:4px">当前发送帧:</div>
+      <div class="frame-display" id="frameDisplay">--</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="ctrl-panel">
+    <h3>控制</h3>
+    <button class="btn btn-reset" id="btnPower" onclick="doPowerOn()">⚡ 上电</button>
+    <button class="btn btn-start" id="btnStart" onclick="doStart()" disabled>▶ 蓝牙 START</button>
+    <button class="btn btn-stop" id="btnStop" onclick="doStop()" disabled>⏹ 蓝牙 STOP</button>
+    <button class="btn btn-reset" onclick="doReset()">🔄 重置</button>
+
+    <div class="scenario-box">
+      <h4>模拟场景</h4>
+      <button class="scenario-btn" id="sc_normal" onclick="setScenario('normal')">👤 正常跟随 (无障碍)</button>
+      <button class="scenario-btn" id="sc_slow" onclick="setScenario('slow')">⚠️ 前方减速 (0.8m)</button>
+      <button class="scenario-btn" id="sc_left" onclick="setScenario('left')">🔴 右侧有障碍→左转闪</button>
+      <button class="scenario-btn" id="sc_right" onclick="setScenario('right')">🔴 左侧有障碍→右转闪</button>
+      <button class="scenario-btn" id="sc_blocked" onclick="setScenario('blocked')">🚫 三面围堵→旋转脱困</button>
+      <button class="scenario-btn" id="sc_lost" onclick="setScenario('lost')">📡 UWB丢失→停车</button>
+    </div>
+
+    <div class="motor-gauge">
+      <h4>电机输出</h4>
+      <div class="gauge-row">
+        <span class="lbl">速度</span>
+        <div class="gauge-bar"><div class="gauge-fill pos" id="gSpeed"></div></div>
+        <span class="gauge-val" id="vSpeed">0</span>
+      </div>
+      <div class="gauge-row">
+        <span class="lbl">转向</span>
+        <div class="gauge-bar">
+          <div class="gauge-fill pos" id="gSteerP" style="width:0"></div>
+          <div class="gauge-fill neg" id="gSteerN" style="width:0"></div>
+        </div>
+        <span class="gauge-val" id="vSteer">0</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// State
+let phase = 0; // 0=off, 1=init, 2=standby, 3=running, 4=stop
+let scenario = 'normal';
+let flowTimer = null;
+let frameTimer = null;
+
+const scenarios = {
+  normal:  { L: 2.5, M: 3.0, R: 2.0, uwb_dist: 200, uwb_angle: 300, action: 'OK',  out_dist: 200, out_angle: -900 },
+  slow:    { L: 1.2, M: 0.8, R: 1.5, uwb_dist: 200, uwb_angle: 300, action: 'SLO', out_dist: 145, out_angle: -900 },
+  left:    { L: 1.5, M: 1.2, R: 0.3, uwb_dist: 200, uwb_angle: 300, action: '<L',  out_dist: 180, out_angle: -600 },
+  right:   { L: 0.3, M: 1.2, R: 1.5, uwb_dist: 200, uwb_angle: -200,action: 'R>',  out_dist: 180, out_angle: 600 },
+  blocked: { L: 0.2, M: 0.3, R: 0.2, uwb_dist: 200, uwb_angle: 0,   action: 'CCW', out_dist: 130, out_angle: -900 },
+  lost:    { L: 2.0, M: 2.5, R: 2.0, uwb_dist: 0,   uwb_angle: 0,   action: 'LOST',out_dist: 0,   out_angle: 0 },
+};
+
+function $(id) { return document.getElementById(id); }
+
+function setPhase(p) {
+  phase = p;
+  for (let i = 0; i < 4; i++) {
+    const el = $('ph' + i);
+    el.className = 'phase-dot' + (i < p ? ' done' : i === p ? ' current' : '');
+  }
+}
+
+function setHW(id, active, ledState, status, statusClass) {
+  $('hw_' + id).className = 'hw-box' + (active ? ' active' : '');
+  const led = $('led_' + id);
+  led.className = 'led' + (ledState === 'on' ? ' on' : ledState === 'blink' ? ' blink' : '');
+  const st = $('st_' + id);
+  st.textContent = status;
+  st.className = 'status ' + (statusClass || '');
+}
+
+function setConn(id, active) {
+  $(id).className = 'conn-line' + (active ? ' active' : '');
+}
+
+function clearFlow() {
+  $('flowItems').innerHTML = '';
+}
+
+function addFlow(src, arrow, msg, dest, delay) {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      const div = document.createElement('div');
+      div.className = 'flow-item';
+      div.innerHTML = `<span class="src">${src}</span><span class="arrow">${arrow}</span><span class="msg">${msg}</span><span class="dest">${dest}</span>`;
+      $('flowItems').appendChild(div);
+      $('flowItems').scrollTop = $('flowItems').scrollHeight;
+      resolve();
+    }, delay || 300);
+  });
+}
+
+function setFrame(text) {
+  $('frameDisplay').textContent = text;
+}
+
+function setGauges(speed, steer) {
+  const maxS = 400, maxSt = 500;
+  const sp = Math.min(Math.abs(speed) / maxS * 50, 50);
+  $('gSpeed').style.width = sp + '%';
+  $('gSpeed').className = 'gauge-fill pos';
+  $('vSpeed').textContent = speed;
+
+  if (steer >= 0) {
+    $('gSteerP').style.width = Math.min(steer / maxSt * 50, 50) + '%';
+    $('gSteerN').style.width = '0';
+  } else {
+    $('gSteerP').style.width = '0';
+    $('gSteerN').style.width = Math.min(-steer / maxSt * 50, 50) + '%';
+  }
+  $('vSteer').textContent = steer;
+}
+
+// Compute motor response like the real board
+function computeMotor(dist, angle) {
+  if (dist <= 0) return { speed: 0, steer: 0 };
+  let speed = 0;
+  if (dist < 120) { speed = 0; }
+  else if (dist < 135) { speed = 60; }
+  else { speed = Math.min(60 + (dist - 135) * 5, 400); }
+
+  let angleDeg = Math.round(angle / 10);
+  let steer = 0;
+  if (Math.abs(angleDeg) >= 10) {
+    steer = Math.max(-500, Math.min(500, angleDeg * 8));
+  }
+  return { speed, steer };
+}
+
+async function doPowerOn() {
+  if (phase !== 0) return;
+  $('btnPower').disabled = true;
+  setPhase(1);
+  $('flowTitle').textContent = '① 初始化中...';
+  clearFlow();
+
+  // Init sequence
+  setHW('motor', true, 'blink', '初始化...', 'warn');
+  await addFlow('电机板', '⚡', 'HAL_Init → 时钟72MHz', '', 400);
+  await addFlow('电机板', '🔧', 'GPIO + TIM + ADC + BLDC_Init', '', 400);
+  await addFlow('电机板', '🔊', '开机蜂鸣 → 电机使能', '', 400);
+  setHW('motor', true, 'on', '等待$FLW帧...', '');
+
+  setHW('sig', true, 'blink', '初始化...', 'warn');
+  await addFlow('信号板', '⚡', 'HAL_Init → 72MHz (HSE×9)', '', 300);
+  await addFlow('信号板', '🔧', 'UART1+2+3, CAN1 初始化', '', 300);
+  await addFlow('信号板', '🔧', 'tofsense_can_init() CAN过滤器', '', 300);
+  await addFlow('信号板', '💡', 'LED闪3次 → "Signal+TOF Ready"', '', 500);
+  setHW('sig', true, 'on', 'bt_armed=0 待机', '');
+
+  setHW('tof', true, 'on', '30Hz广播64帧像素', '');
+  setHW('uwb', true, 'on', '输出$FLW帧中...', '');
+  setHW('bt', true, 'on', '等待连接', 'warn');
+
+  setConn('conn_can', true);
+  setConn('conn_uwb', true);
+  setConn('conn_bt', true);
+  setConn('conn_motor', true);
+
+  await addFlow('', '', '', '', 300);
+
+  // Move to standby
+  setPhase(2);
+  $('flowTitle').textContent = '② 待机 (等待蓝牙 START)';
+  clearFlow();
+  await addFlow('信号板', '→', '$FLW,0,0,0,0,3 (停车帧)', '电机板', 300);
+  await addFlow('TOF', '→', 'CAN像素数据 (收到但不使用)', '信号板', 300);
+  await addFlow('UWB', '→', '$FLW帧 (收到但不转发)', '信号板', 300);
+  setFrame('$FLW,0,0,0,0,3');
+  setGauges(0, 0);
+
+  $('btnStart').disabled = false;
+  setHW('bt', true, 'on', '等待 START 命令', 'warn');
+
+  // Keep sending stop frames
+  frameTimer = setInterval(() => {
+    if (phase === 2) {
+      // blink motor status
+    }
+  }, 500);
+}
+
+async function doStart() {
+  if (phase !== 2) return;
+  $('btnStart').disabled = true;
+  $('btnStop').disabled = false;
+
+  setPhase(3);
+  $('flowTitle').textContent = '③ 跟随 + 避障运行中';
+  clearFlow();
+
+  setHW('bt', true, 'on', '已连接: START', '');
+  setHW('sig', true, 'on', 'bt_armed=1 运行中', '');
+
+  await addFlow('蓝牙', '→', '"START"', '信号板', 200);
+  await addFlow('信号板', '→', '"ACK_START" → LED常亮', '蓝牙', 200);
+  $('led_sig').className = 'led on';
+
+  await addFlow('', '', '── 开始20Hz数据流 ──', '', 400);
+
+  startRunLoop();
+}
+
+function startRunLoop() {
+  if (flowTimer) clearInterval(flowTimer);
+  flowTimer = setInterval(() => {
+    if (phase !== 3) return;
+    updateRunning();
+  }, 800);
+  updateRunning();
+}
+
+function updateRunning() {
+  const sc = scenarios[scenario];
+  clearFlow();
+
+  const items = $('flowItems');
+  function add(src, arrow, msg, dest) {
+    const div = document.createElement('div');
+    div.className = 'flow-item';
+    div.style.animationDelay = '0s';
+    div.innerHTML = `<span class="src">${src}</span><span class="arrow">${arrow}</span><span class="msg">${msg}</span><span class="dest">${dest}</span>`;
+    items.appendChild(div);
+  }
+
+  add('TOF', '→', `L:${sc.L.toFixed(1)}m  M:${sc.M.toFixed(1)}m  R:${sc.R.toFixed(1)}m`, '信号板');
+
+  if (scenario !== 'lost') {
+    add('UWB', '→', `$FLW,${sc.uwb_dist},${sc.uwb_angle},0,0,1`, '信号板');
+  } else {
+    add('UWB', '✕', '超时 >500ms (丢失)', '信号板');
+  }
+
+  let actionDesc = '';
+  switch(sc.action) {
+    case 'OK':  actionDesc = '✅ 无障碍 → 正常转发'; break;
+    case 'SLO': actionDesc = '⚠️ 减速区 → dist限制≤145'; break;
+    case '<L':  actionDesc = '🔴 右侧危险 → 左转闪避'; break;
+    case 'R>':  actionDesc = '🔴 左侧危险 → 右转闪避'; break;
+    case 'CCW': actionDesc = '🚫 三面围堵 → 逆时针脱困'; break;
+    case 'LOST':actionDesc = '📡 UWB丢失 → 发停车帧'; break;
+  }
+  add('信号板', '⚙️', `决策: ${actionDesc}`, '');
+
+  let frame;
+  if (sc.action === 'LOST') {
+    frame = '$FLW,0,0,0,0,3';
+  } else {
+    frame = `$FLW,${sc.out_dist},${sc.out_angle},0,0,1`;
+  }
+  add('信号板', '→', frame, '电机板');
+
+  const motor = computeMotor(sc.out_dist, sc.out_angle);
+  if (sc.action === 'LOST') {
+    add('电机板', '⏹', `status=3 → speed=0, steer=0 停车`, '');
+    setGauges(0, 0);
+  } else {
+    add('电机板', '🔧', `speed=${motor.speed}  steer=${motor.steer}`, '');
+    setGauges(motor.speed, motor.steer);
+  }
+
+  setFrame(frame);
+
+  // Update HW statuses
+  if (sc.action === 'LOST') {
+    setHW('uwb', true, '', 'UWB丢失!', 'err');
+    setHW('motor', true, 'on', '停车', 'warn');
+  } else {
+    setHW('uwb', true, 'on', `dist=${sc.uwb_dist}cm angle=${sc.uwb_angle/10}°`, '');
+    let motorSt = sc.action === 'OK' ? '正常跟随' :
+                  sc.action === 'SLO' ? '减速行驶' :
+                  sc.action === '<L' ? '左转避障中' :
+                  sc.action === 'R>' ? '右转避障中' : '旋转脱困中';
+    setHW('motor', true, 'on', motorSt, '');
+  }
+
+  let tofSt = sc.action === 'OK' ? '安全' :
+              sc.action === 'SLO' ? '减速区' : '危险区!';
+  let tofCls = sc.action === 'OK' ? '' : (sc.action === 'SLO' ? 'warn' : 'err');
+  setHW('tof', true, 'on', `${tofSt} L:${sc.L} M:${sc.M} R:${sc.R}`, tofCls);
+}
+
+async function doStop() {
+  if (phase !== 3) return;
+  $('btnStart').disabled = false;
+  $('btnStop').disabled = true;
+  if (flowTimer) { clearInterval(flowTimer); flowTimer = null; }
+
+  setPhase(2);
+  $('flowTitle').textContent = '② 待机 (已停止)';
+  clearFlow();
+
+  await addFlow('蓝牙', '→', '"STOP"', '信号板', 200);
+  await addFlow('信号板', '→', '"ACK_STOP" → LED灭', '蓝牙', 200);
+  await addFlow('信号板', '→', '$FLW,0,0,0,0,3 (停车帧)', '电机板', 200);
+
+  setHW('sig', true, 'on', 'bt_armed=0 待机', '');
+  setHW('motor', true, 'on', '停车', 'warn');
+  setHW('bt', true, 'on', '等待 START 命令', 'warn');
+  $('led_sig').className = 'led';
+  setFrame('$FLW,0,0,0,0,3');
+  setGauges(0, 0);
+}
+
+function doReset() {
+  if (flowTimer) { clearInterval(flowTimer); flowTimer = null; }
+  if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
+  phase = 0;
+  setPhase(0);
+  $('flowTitle').textContent = '等待上电...';
+  clearFlow();
+  setFrame('--');
+  setGauges(0, 0);
+
+  ['tof','sig','uwb','bt','motor'].forEach(id => setHW(id, false, '', '未上电', 'off'));
+  ['conn_can','conn_uwb','conn_bt','conn_motor'].forEach(id => setConn(id, false));
+
+  $('btnPower').disabled = false;
+  $('btnStart').disabled = true;
+  $('btnStop').disabled = true;
+
+  document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+}
+
+function setScenario(sc) {
+  scenario = sc;
+  document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+  $('sc_' + sc).classList.add('active');
+  if (phase === 3) updateRunning();
+}
+
+// Init
+doReset();
+</script>
+</body>
+</html>

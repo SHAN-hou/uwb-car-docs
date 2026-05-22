@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UWB跟随+避障小车 系统技术文档</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface2: #334155;
+    --border: #475569;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --accent: #38bdf8;
+    --accent2: #818cf8;
+    --green: #4ade80;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --orange: #fb923c;
+    --pink: #f472b6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    scroll-behavior: smooth;
+  }
+
+  /* ---- Sidebar ---- */
+  .sidebar {
+    position: fixed; left: 0; top: 0; bottom: 0; width: 260px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 24px 0;
+    overflow-y: auto;
+    z-index: 100;
+    transition: transform .3s;
+  }
+  .sidebar-title {
+    font-size: 14px; font-weight: 700; color: var(--accent);
+    padding: 0 20px; margin-bottom: 16px;
+    letter-spacing: 1px; text-transform: uppercase;
+  }
+  .sidebar a {
+    display: block; padding: 8px 20px; font-size: 13px;
+    color: var(--text2); text-decoration: none;
+    border-left: 3px solid transparent;
+    transition: all .2s;
+  }
+  .sidebar a:hover, .sidebar a.active {
+    color: var(--accent); background: rgba(56,189,248,.06);
+    border-left-color: var(--accent);
+  }
+  .sidebar a.sub { padding-left: 36px; font-size: 12px; }
+
+  /* ---- Main ---- */
+  .main { margin-left: 260px; padding: 40px 48px 80px; max-width: 960px; }
+
+  /* ---- Hero ---- */
+  .hero {
+    background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 48px 40px;
+    margin-bottom: 48px;
+    text-align: center;
+  }
+  .hero h1 { font-size: 28px; color: #fff; margin-bottom: 8px; }
+  .hero p { color: var(--text2); font-size: 15px; }
+  .hero .badge {
+    display: inline-block; margin-top: 16px; padding: 4px 14px;
+    background: rgba(56,189,248,.15); color: var(--accent);
+    border-radius: 20px; font-size: 12px; font-weight: 600;
+  }
+
+  /* ---- Section ---- */
+  section { margin-bottom: 48px; }
+  h2 {
+    font-size: 22px; color: #fff; margin-bottom: 20px;
+    padding-bottom: 10px; border-bottom: 2px solid var(--accent);
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2 .icon { font-size: 24px; }
+  h3 {
+    font-size: 17px; color: var(--accent2); margin: 24px 0 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h3::before {
+    content: ''; display: inline-block; width: 4px; height: 18px;
+    background: var(--accent2); border-radius: 2px;
+  }
+  p, li { font-size: 14px; color: var(--text); }
+  p { margin-bottom: 12px; }
+
+  /* ---- Card ---- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 16px;
+    transition: border-color .2s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card-title {
+    font-size: 15px; font-weight: 700; color: #fff;
+    margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+  }
+  .card-title .dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  /* ---- Table ---- */
+  .table-wrap { overflow-x: auto; margin-bottom: 16px; }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  th {
+    text-align: left; padding: 10px 14px;
+    background: var(--surface2); color: var(--accent);
+    font-weight: 600; white-space: nowrap;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 9px 14px; border-bottom: 1px solid rgba(71,85,105,.4);
+    color: var(--text);
+  }
+  tr:hover td { background: rgba(56,189,248,.04); }
+
+  /* ---- Code ---- */
+  pre {
+    background: #0c1222;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.6;
+    margin-bottom: 16px;
+    color: var(--green);
+    font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  }
+  code {
+    background: var(--surface2); padding: 2px 6px; border-radius: 4px;
+    font-size: 12px; color: var(--yellow);
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+
+  /* ---- Flow diagram ---- */
+  .flow {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px; margin-bottom: 16px;
+    overflow-x: auto;
+  }
+  .flow pre { background: none; border: none; padding: 0; margin: 0; color: var(--text2); }
+
+  /* ---- Tag ---- */
+  .tag {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 600;
+  }
+  .tag-blue   { background: rgba(56,189,248,.15); color: var(--accent); }
+  .tag-green  { background: rgba(74,222,128,.15); color: var(--green); }
+  .tag-yellow { background: rgba(251,191,36,.15); color: var(--yellow); }
+  .tag-red    { background: rgba(248,113,113,.15); color: var(--red); }
+  .tag-purple { background: rgba(129,140,248,.15); color: var(--accent2); }
+  .tag-orange { background: rgba(251,146,60,.15); color: var(--orange); }
+
+  /* ---- Grid ---- */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  /* ---- Responsive ---- */
+  .menu-btn {
+    display: none; position: fixed; top: 12px; left: 12px; z-index: 200;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 12px; border-radius: 8px; cursor: pointer;
+    font-size: 18px;
+  }
+  @media (max-width: 768px) {
+    .sidebar { transform: translateX(-100%); }
+    .sidebar.open { transform: translateX(0); }
+    .main { margin-left: 0; padding: 24px 16px 60px; }
+    .menu-btn { display: block; }
+    .grid2 { grid-template-columns: 1fr; }
+    .hero { padding: 32px 20px; }
+  }
+
+  /* ---- Scrollbar ---- */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<button class="menu-btn" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰</button>
+
+<nav class="sidebar">
+  <div class="sidebar-title">📑 目录导航</div>
+  <a href="#overview">一、模块功能综述</a>
+  <a href="#modules" class="sub">二、各模块具体职责</a>
+  <a href="#m-bu03" class="sub">　BU03+蓝牙模块</a>
+  <a href="#m-bu04" class="sub">　BU04模块</a>
+  <a href="#m-signal" class="sub">　信号板</a>
+  <a href="#m-motor" class="sub">　电机驱动板</a>
+  <a href="#arch">三、系统架构</a>
+  <a href="#timing">四、模块配合时序</a>
+  <a href="#t-follow" class="sub">　正常跟随时序</a>
+  <a href="#t-start" class="sub">　启动序列</a>
+  <a href="#t-avoid" class="sub">　避障介入时序</a>
+  <a href="#t-stop" class="sub">　停止序列</a>
+  <a href="#protection">五、保护机制</a>
+  <a href="#exception">六、异常处理</a>
+</nav>
+
+<div class="main">
+
+  <!-- Hero -->
+  <div class="hero">
+    <h1>UWB跟随 + 避障小车</h1>
+    <p>四板协作系统技术文档 — 基于 STM32 + UWB + TOF 激光</p>
+    <span class="badge">v1.0 · 可以躲避垃圾桶V1.0</span>
+  </div>
+
+  <!-- ============ 一、模块功能综述 ============ -->
+  <section id="overview">
+    <h2><span class="icon">📋</span> 一、模块功能综述</h2>
+    <p>本系统由 <strong>4 块硬件板</strong> 协作完成 UWB 跟随 + TOF 激光避障功能：</p>
+
+    <div class="table-wrap"><table>
+      <tr><th>模块</th><th>MCU / 芯片</th><th>核心职责</th><th>代码目录</th></tr>
+      <tr>
+        <td><strong>BU03+蓝牙</strong></td><td>UWB + BLE</td>
+        <td>UWB 标签（被跟踪目标），蓝牙按键发送 START / STOP</td>
+        <td><code>Ai-UWB-SDK/</code></td>
+      </tr>
+      <tr>
+        <td><strong>BU04</strong></td><td>UWB</td>
+        <td>UWB 锚点，检测 BU03 位置，输出 <code>$FLW</code> 帧</td>
+        <td><code>BU04程序/</code></td>
+      </tr>
+      <tr>
+        <td><strong>信号板</strong></td><td>STM32F103C8T6</td>
+        <td>中枢决策：蓝牙门控 + UWB 转发 + TOF CAN 避障融合</td>
+        <td><code>signal_board_c8t6/</code></td>
+      </tr>
+      <tr>
+        <td><strong>电机驱动板</strong></td><td>STM32F103RC</td>
+        <td>接收 <code>$FLW</code> 帧，P 控制器解析，驱动左右 BLDC 电机</td>
+        <td><code>Src/</code> + <code>Inc/</code></td>
+      </tr>
+    </table></div>
+
+    <div class="flow">
+      <pre><code>[BU03 标签] ──BLE──➤ [信号板 USART1]
+[BU04 锚点] ──UART─➤ [信号板 USART2]  ── 融合决策 ──➤ [信号板 USART3] ── $FLW ──➤ [电机驱动板 USART3]
+[TOFSense-M] ──CAN─➤ [信号板 CAN1]                                                     ↓
+                                                                                 BLDC FOC → 左右电机</code></pre>
+    </div>
+  </section>
+
+  <!-- ============ 二、各模块具体职责 ============ -->
+  <section id="modules">
+    <h2><span class="icon">🔧</span> 二、各模块具体职责</h2>
+
+    <!-- BU03 -->
+    <div class="card" id="m-bu03">
+      <div class="card-title"><span class="dot" style="background:var(--green)"></span> 2.1 BU03+蓝牙模块（UWB标签端）</div>
+      <p><strong>职责：</strong> 作为 UWB 标签被 BU04 定位；板上按键通过 HC-04 蓝牙发送 <code>START\n</code> / <code>STOP\n</code> 给信号板。</p>
+      <p><strong>判断逻辑：</strong> 无复杂逻辑，按键触发即发送字符串命令。</p>
+      <div class="grid2">
+        <div><span class="tag tag-blue">UWB 测距精度</span> ±10cm</div>
+        <div><span class="tag tag-green">蓝牙传输延迟</span> &lt;20ms</div>
+      </div>
+    </div>
+
+    <!-- BU04 -->
+    <div class="card" id="m-bu04">
+      <div class="card-title"><span class="dot" style="background:var(--accent)"></span> 2.2 BU04模块（UWB锚点/检测端）</div>
+      <p><strong>职责：</strong> 实时测距 + 测角 BU03 标签，通过 UART 输出标准 <code>$FLW</code> 帧给信号板。</p>
+      <p><strong>协议格式：</strong></p>
+      <pre><code>$FLW,&lt;dist_cm&gt;,&lt;angle_x10&gt;,&lt;x_cm&gt;,&lt;y_cm&gt;,&lt;status&gt;\r\n</code></pre>
+      <div class="table-wrap"><table>
+        <tr><th>字段</th><th>含义</th></tr>
+        <tr><td><code>dist_cm</code></td><td>标签距离 (cm)</td></tr>
+        <tr><td><code>angle_x10</code></td><td>角度×10（正=右偏）</td></tr>
+        <tr><td><code>x_cm</code>, <code>y_cm</code></td><td>平面坐标 (cm)</td></tr>
+        <tr><td><code>status</code></td><td>0=太近　1=跟随　2=太远　3=丢失</td></tr>
+      </table></div>
+      <div class="grid2">
+        <div><span class="tag tag-blue">刷新率</span> ~10-20Hz</div>
+        <div><span class="tag tag-green">有效测距</span> 0.3m ~ 15m</div>
+      </div>
+    </div>
+
+    <!-- 信号板 -->
+    <div class="card" id="m-signal">
+      <div class="card-title"><span class="dot" style="background:var(--yellow)"></span> 2.3 信号板（中枢决策板）</div>
+      <p><strong>代码文件：</strong> <code>signal_board_c8t6/src/main.c</code> + <code>tofsense_can.h/.c</code></p>
+
+      <h3>四大职责</h3>
+      <div class="table-wrap"><table>
+        <tr><th>#</th><th>职责</th><th>接口</th><th>说明</th></tr>
+        <tr><td>1</td><td>蓝牙门控</td><td>USART1 (PA9/PA10) 115200</td><td>接收 HC-04 的 START/STOP，切换 <code>bt_armed</code></td></tr>
+        <tr><td>2</td><td>UWB 数据接收</td><td>USART2 (PA2/PA3) 115200</td><td>收 BU04 <code>$FLW</code> 帧，缓存最新距离/角度</td></tr>
+        <tr><td>3</td><td>TOF 避障融合</td><td>CAN1 (PA11/PA12) 1Mbps</td><td>收 TOFSense-M 64 像素深度图，分左/中/右三区域</td></tr>
+        <tr><td>4</td><td>综合决策+转发</td><td>USART3 (PB10/PB11) 115200</td><td>20Hz 周期发送融合后 <code>$FLW</code> 给电机驱动板</td></tr>
+      </table></div>
+
+      <h3>避障判断逻辑（优先级高→低）</h3>
+      <pre><code>if (!bt_armed)
+    → 停车帧 $FLW,0,0,0,0,3
+
+else if (三面围堵: 左/中/右 均 &lt; danger=0.6m)
+    → ROTATE_CW/CCW: 大角度原地转向脱困
+      steer=±1500, dist=130
+
+else if (单侧/双侧 &lt; danger=0.6m)
+    → SHIFT_LEFT/RIGHT: 向空旷侧转向闪避
+      steer=±1100, dist=180
+
+else if (任一方向 &lt; slow_down=1.0m)
+    → SLOW_DOWN: 保持 UWB 角度，限制 dist≤200
+
+else if (UWB 在线)
+    → NONE: 正常转发 UWB 帧（角度取反×5增益）
+
+else (UWB 超时 &gt; 500ms)
+    → 停车帧</code></pre>
+
+      <h3>避障参数（差速车）</h3>
+      <div class="table-wrap"><table>
+        <tr><th>参数</th><th>值</th><th>含义</th></tr>
+        <tr><td><code>danger_distance</code></td><td>0.60m</td><td>触发转向避障阈值</td></tr>
+        <tr><td><code>slow_down_distance</code></td><td>1.0m</td><td>触发减速阈值</td></tr>
+        <tr><td><code>shift_steer</code></td><td>1100</td><td>闪避转向角 (≈110°)</td></tr>
+        <tr><td><code>shift_dist</code></td><td>180</td><td>闪避时前进速度</td></tr>
+        <tr><td><code>rotate_steer</code></td><td>1500</td><td>脱困转向角 (≈150°)</td></tr>
+        <tr><td><code>rotate_dist</code></td><td>130</td><td>脱困极慢前进</td></tr>
+        <tr><td><code>slow_dist</code></td><td>200</td><td>减速区最大 dist</td></tr>
+      </table></div>
+
+      <div class="grid2">
+        <div><span class="tag tag-yellow">决策周期</span> 50ms (20Hz)</div>
+        <div><span class="tag tag-red">BU04 超时</span> 500ms</div>
+      </div>
+    </div>
+
+    <!-- 电机驱动板 -->
+    <div class="card" id="m-motor">
+      <div class="card-title"><span class="dot" style="background:var(--red)"></span> 2.4 电机驱动板（执行端）</div>
+      <p><strong>代码文件：</strong> <code>Src/main.c</code> + <code>Src/flw_follow.c</code> + <code>Src/util.c</code></p>
+
+      <h3>五大职责</h3>
+      <div class="table-wrap"><table>
+        <tr><th>#</th><th>职责</th><th>源文件</th></tr>
+        <tr><td>1</td><td>$FLW 解析 — DMA 接收 USART3，行缓冲解析</td><td><code>flw_follow.c</code></td></tr>
+        <tr><td>2</td><td>P 控制器 — 距离/角度 → speed/steer 指令</td><td><code>flw_follow.c</code></td></tr>
+        <tr><td>3</td><td>滤波 + 混合 — 速率限幅 + 低通滤波 + 差速混合</td><td><code>main.c</code></td></tr>
+        <tr><td>4</td><td>BLDC FOC — Matlab 自动生成的正弦波换相</td><td><code>BLDC_controller.c</code></td></tr>
+        <tr><td>5</td><td>安全监控 — 电压/温度/超时保护</td><td><code>main.c</code></td></tr>
+      </table></div>
+
+      <h3>P 控制器逻辑 (<code>flw_apply</code>)</h3>
+      <pre><code>if (status != 1) → 停车
+if (dist &lt; TARGET=150cm) → 停车（太近）
+if (dist &lt; TARGET+HYST=165cm) → 蠕行 (speed = MIN_SPEED = 80)
+if (dist ≥ 165cm) → speed = 80 + (dist-165) × KP=3, 上限 100
+steer = angle_deg × ANGLE_KP=4, 死区 ±30°, 上限 ±350</code></pre>
+
+      <h3>滤波管线（每 2ms 主循环）</h3>
+      <pre><code>uart_speed_cmd → rateLimiter16(rate=480) → filtLowPass32(coef=6553) → speed
+uart_steer_cmd → rateLimiter16(rate=480) → filtLowPass32(coef=6553) → steer
+speed + steer  → mixerFcn() → cmdL, cmdR → PWM 驱动</code></pre>
+
+      <h3>关键参数 (config.h VARIANT_BBCAR)</h3>
+      <div class="table-wrap"><table>
+        <tr><th>参数</th><th>值</th><th>含义</th></tr>
+        <tr><td><code>FLW_TARGET_DIST_CM</code></td><td>150</td><td>目标跟随距离 1.5m</td></tr>
+        <tr><td><code>FLW_HYSTERESIS_CM</code></td><td>15</td><td>迟滞区防抖</td></tr>
+        <tr><td><code>FLW_DIST_KP</code></td><td>3</td><td>速度 P 增益</td></tr>
+        <tr><td><code>FLW_ANGLE_KP</code></td><td>4</td><td>转向 P 增益</td></tr>
+        <tr><td><code>FLW_ANGLE_DEADZONE_DEG</code></td><td>30</td><td>角度死区</td></tr>
+        <tr><td><code>FLW_MAX_SPEED</code></td><td>100</td><td>最大前进 cmd</td></tr>
+        <tr><td><code>FLW_MAX_STEER</code></td><td>350</td><td>最大转向 cmd</td></tr>
+        <tr><td><code>FLW_MIN_SPEED</code></td><td>80</td><td>最小启动 cmd</td></tr>
+        <tr><td><code>FLW_TIMEOUT_MS</code></td><td>1000</td><td>通信超时 ms</td></tr>
+        <tr><td><code>PWM_FREQ</code></td><td>16kHz</td><td>PWM 频率</td></tr>
+        <tr><td><code>I_MOT_MAX</code></td><td>15A</td><td>单电机电流限制</td></tr>
+        <tr><td><code>N_MOT_MAX</code></td><td>1500rpm</td><td>转速上限</td></tr>
+      </table></div>
+
+      <div class="grid2">
+        <div><span class="tag tag-green">主循环</span> 2ms (500Hz)</div>
+        <div><span class="tag tag-blue">RAM</span> 6.1% (2992B / 48KB)</div>
+        <div><span class="tag tag-purple">调试输出</span> 125ms/次</div>
+        <div><span class="tag tag-orange">Flash</span> 17.5% (45.8KB / 256KB)</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 三、系统架构 ============ -->
+  <section id="arch">
+    <h2><span class="icon">🏗️</span> 三、系统架构</h2>
+
+    <h3>3.1 硬件拓扑</h3>
+    <div class="flow">
+      <pre><code>┌─────────────────┐          ┌───────────────────────────────────┐
+│  BU03 + HC-04   │── BLE ──→│  信号板 (STM32F103C8T6)           │
+│  (UWB 标签)      │          │                                   │
+└─────────────────┘          │  USART1 ← 蓝牙 START/STOP        │
+                             │  USART2 ← BU04 $FLW (UWB)        │
+┌─────────────────┐          │  CAN1   ← TOFSense-M (64 像素)   │
+│  BU04           │── UART ─→│                                   │
+│  (UWB 锚点)     │          │       融合决策引擎                 │
+└─────────────────┘          │           ↓                       │
+                             │  USART3 → 融合后 $FLW 帧          │
+┌─────────────────┐          └────────────┬──────────────────────┘
+│ TOFSense-M      │── CAN ──→            │
+│ (8×8 激光雷达)   │                      │  UART 115200
+└─────────────────┘                      ↓
+                             ┌───────────────────────────────────┐
+                             │  电机驱动板 (STM32F103RC)          │
+                             │                                   │
+                             │  USART3 DMA ← $FLW                │
+                             │  flw_follow.c → P 控制器          │
+                             │  滤波 + 差速混合                    │
+                             │  BLDC FOC → 左/右电机 PWM          │
+                             └───────────────────────────────────┘</code></pre>
+    </div>
+
+    <h3>3.2 软件分层（电机驱动板）</h3>
+    <div class="flow">
+      <pre><code>┌───────────────────────────────────────────────┐
+│             应用层 (main.c)                     │
+│  主循环: 读输入 → 安全检查 → 滤波 → 混合        │
+├───────────────────────────────────────────────┤
+│         通信层                                  │
+│  flw_follow.c  ← $FLW 解析 + P 控制器          │
+│  comms.c       ← 串口调试协议                   │
+│  util.c        ← USART DMA 收发                │
+├───────────────────────────────────────────────┤
+│         控制层                                  │
+│  BLDC_controller.c ← Matlab FOC               │
+│  util.c (mixerFcn, rateLimiter, filtLP)        │
+├───────────────────────────────────────────────┤
+│         驱动层                                  │
+│  setup.c ← GPIO/TIM/ADC/UART/DMA 初始化        │
+│  bldc.c  ← PWM 输出 + Hall 中断               │
+├───────────────────────────────────────────────┤
+│         HAL 层 (STM32CubeF1)                   │
+└───────────────────────────────────────────────┘</code></pre>
+    </div>
+  </section>
+
+  <!-- ============ 四、模块配合时序 ============ -->
+  <section id="timing">
+    <h2><span class="icon">⏱️</span> 四、模块配合时序</h2>
+
+    <div class="card" id="t-follow">
+      <div class="card-title"><span class="dot" style="background:var(--green)"></span> 4.1 正常跟随时序（一个完整周期）</div>
+      <pre><code>时间轴 →
+
+BU04:     ──测距──[100ms]──测距──
+               ↓                ↓
+          $FLW帧(UART)     $FLW帧(UART)
+               ↓                ↓
+信号板:   收$FLW → 缓存 ─[50ms周期]─ 读TOF → 融合决策 → 发$FLW → ...
+                                                           ↓
+                                                    USART3 TX
+                                                           ↓
+电机驱动: ─[2ms]─ DMA收 → parse → P控 → 限幅 → 滤波 → 混合 → PWM</code></pre>
+    </div>
+
+    <div class="card" id="t-start">
+      <div class="card-title"><span class="dot" style="background:var(--accent)"></span> 4.2 启动序列</div>
+      <div class="table-wrap"><table>
+        <tr><th>步骤</th><th>动作</th></tr>
+        <tr><td>1</td><td>全系统上电</td></tr>
+        <tr><td>2</td><td>BU04 开始测距 → 发 <code>$FLW</code> 帧</td></tr>
+        <tr><td>3</td><td>信号板初始化: UART1/2/3 + CAN1 + TOFSense → LED 闪烁 6 次 → <code>"Signal+TOF Ready"</code></td></tr>
+        <tr><td>4</td><td>电机驱动板初始化: GPIO + TIM + ADC + BLDC → 开机旋律 → 检测驾驶模式 → 等待按钮释放</td></tr>
+        <tr><td>5</td><td>信号板 <code>bt_armed=0</code>: 持续发 <code>STOP_FRAME</code></td></tr>
+        <tr><td>6</td><td>用户按 BU03 按键 → BLE 发 <code>"START\n"</code></td></tr>
+        <tr><td>7</td><td>信号板收到 → <code>bt_armed=1</code> → LED 常亮 → 回复 <code>"ACK_START"</code></td></tr>
+        <tr><td>8</td><td>信号板开始转发融合后的 <code>$FLW</code> 帧</td></tr>
+        <tr><td>9</td><td>电机驱动板解析 → 电机启动</td></tr>
+      </table></div>
+    </div>
+
+    <div class="card" id="t-avoid">
+      <div class="card-title"><span class="dot" style="background:var(--yellow)"></span> 4.3 避障介入时序</div>
+      <pre><code>正常跟随中:
+  信号板 20Hz 轮询 TOFSense 64 像素 CAN 帧
+    ↓
+  tofsense_get_zones() → 左/中/右最小距离
+    ↓
+  tofsense_avoid_danger() → avoid_result_t
+    ↓
+  [优先级判断]: ROTATE &gt; SHIFT &gt; SLOW_DOWN &gt; NONE
+    ↓
+  build_avoid_frame() → 修改/覆盖 dist 和 angle
+    ↓
+  uart3_send_str() → 电机驱动板立即响应</code></pre>
+    </div>
+
+    <div class="card" id="t-stop">
+      <div class="card-title"><span class="dot" style="background:var(--red)"></span> 4.4 停止序列</div>
+      <div class="table-wrap"><table>
+        <tr><th>步骤</th><th>动作</th></tr>
+        <tr><td>1</td><td>用户按 BU03 按键 → BLE 发 <code>"STOP\n"</code></td></tr>
+        <tr><td>2</td><td>信号板收到 → <code>bt_armed=0</code> → LED 灭 → 回复 <code>"ACK_STOP"</code></td></tr>
+        <tr><td>3</td><td>信号板发 <code>STOP_FRAME ($FLW,0,0,0,0,3)</code></td></tr>
+        <tr><td>4</td><td>电机驱动板: status=3 → speed=0, steer=0 → 清滤波器 → 电机停止</td></tr>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ============ 五、保护机制 ============ -->
+  <section id="protection">
+    <h2><span class="icon">🛡️</span> 五、保护机制</h2>
+
+    <h3>5.1 信号板保护</h3>
+    <div class="table-wrap"><table>
+      <tr><th>保护项</th><th>实现方式</th><th>触发条件</th></tr>
+      <tr><td><span class="tag tag-blue">蓝牙门控</span></td><td><code>bt_armed</code> 标志</td><td>未收到 START → 永远发停车帧</td></tr>
+      <tr><td><span class="tag tag-yellow">BU04 超时</span></td><td><code>flw_last_ms</code> 时间戳比较</td><td>&gt;500ms 无 $FLW → 发停车帧</td></tr>
+      <tr><td><span class="tag tag-orange">UART 溢出</span></td><td>ORE 标志清除 + DR 读取</td><td>USART1/2 中断中处理</td></tr>
+      <tr><td><span class="tag tag-purple">行缓冲溢出</span></td><td><code>flw_idx &gt;= LINE_MAX-1 → reset</code></td><td>异常长帧 / 乱码</td></tr>
+      <tr><td><span class="tag tag-green">CAN 自动恢复</span></td><td><code>AutoBusOff = ENABLE</code></td><td>CAN 总线错误</td></tr>
+      <tr><td><span class="tag tag-red">避障优先级</span></td><td>避障决策覆盖 UWB 数据</td><td>TOF 检测到障碍物时跟随让位</td></tr>
+    </table></div>
+
+    <h3>5.2 电机驱动板保护</h3>
+    <div class="table-wrap"><table>
+      <tr><th>保护项</th><th>实现方式</th><th>触发条件</th><th>响应</th></tr>
+      <tr><td><span class="tag tag-red">$FLW 超时</span></td><td><code>flw_check_timeout()</code></td><td>&gt;1000ms 无帧</td><td>speed/steer 归零</td></tr>
+      <tr><td><span class="tag tag-red">过温保护</span></td><td><code>TEMP_POWEROFF_ENABLE</code></td><td>≥65°C</td><td>自动关机</td></tr>
+      <tr><td><span class="tag tag-yellow">过温警告</span></td><td><code>TEMP_WARNING_ENABLE</code></td><td>≥60°C</td><td>5 声蜂鸣</td></tr>
+      <tr><td><span class="tag tag-red">低电压保护</span></td><td><code>BAT_DEAD_ENABLE</code></td><td>&lt; BAT_DEAD</td><td>自动关机</td></tr>
+      <tr><td><span class="tag tag-yellow">低电量警告</span></td><td><code>BAT_LVL1/2_ENABLE</code></td><td>两级阈值</td><td>蜂鸣提醒</td></tr>
+      <tr><td><span class="tag tag-orange">电流限制</span></td><td><code>I_MOT_MAX=15A, I_DC_MAX=17A</code></td><td>FOC 内部限流</td><td>斩波限流</td></tr>
+      <tr><td><span class="tag tag-orange">转速限制</span></td><td><code>N_MOT_MAX=1500rpm</code></td><td>FOC 内部限速</td><td>限幅</td></tr>
+      <tr><td><span class="tag tag-purple">无操作超时</span></td><td><code>INACTIVITY_TIMEOUT=8min</code></td><td>8 分钟无动作</td><td>自动关机</td></tr>
+      <tr><td><span class="tag tag-blue">速率限幅</span></td><td><code>rateLimiter16(rate=480)</code></td><td>每个主循环周期</td><td>平滑加速，防突变</td></tr>
+      <tr><td><span class="tag tag-red">FOC 故障码</span></td><td><code>rtY_Left/Right.z_errCode</code></td><td>电机/霍尔异常</td><td>禁用电机 + 蜂鸣</td></tr>
+      <tr><td><span class="tag tag-green">急停清零</span></td><td>清滤波器状态</td><td>speed=0 &amp;&amp; steer=0</td><td>立即归零，无残余运动</td></tr>
+    </table></div>
+
+    <h3>5.3 行缓冲保护（两板通用）</h3>
+    <pre><code>// 信号板
+if (flw_idx >= LINE_MAX - 1) { flw_idx = 0; }      // 128 字节溢出重置
+if (bt_idx >= sizeof(bt_line) - 1) { bt_idx = 0; }  // 16 字节溢出重置
+
+// 电机驱动板
+if (flw_idx >= sizeof(flw_line) - 1) { flw_idx = 0; }  // 80 字节溢出重置</code></pre>
+  </section>
+
+  <!-- ============ 六、异常处理 ============ -->
+  <section id="exception">
+    <h2><span class="icon">⚠️</span> 六、异常处理方式</h2>
+
+    <h3>6.1 通信异常</h3>
+    <div class="table-wrap"><table>
+      <tr><th>异常场景</th><th>检测方</th><th>处理方式</th></tr>
+      <tr><td>BU04 掉线</td><td>信号板 (<code>flw_last_ms</code> 超时)</td><td>发停车帧，电机停止</td></tr>
+      <tr><td>蓝牙断连</td><td>信号板 (无 START/STOP)</td><td><code>bt_armed</code> 保持当前值；若已 armed 则 UWB 正常转发</td></tr>
+      <tr><td>信号板→电机板断线</td><td>电机驱动板 (<code>flw_check_timeout</code>)</td><td>1000ms 无帧 → speed/steer 归零</td></tr>
+      <tr><td>TOF CAN 初始化失败</td><td>信号板 (<code>tofsense_can_init</code>)</td><td>串口输出 <code>"ERR:CAN init fail"</code>，避障失效但跟随正常</td></tr>
+      <tr><td>TOF 帧不完整</td><td>信号板 (<code>frame_ready</code>)</td><td>等待 64 像素收齐才更新避障决策</td></tr>
+      <tr><td>$FLW 格式错误</td><td>两板 (<code>sscanf</code> 返回值≠5)</td><td>丢弃该帧，保持上一帧数据</td></tr>
+      <tr><td>UART 溢出 (ORE)</td><td>信号板 (USART1/2 IRQ)</td><td>清 ORE 标志 + 读 DR 寄存器丢弃</td></tr>
+    </table></div>
+
+    <h3>6.2 传感器异常</h3>
+    <div class="table-wrap"><table>
+      <tr><th>异常场景</th><th>检测方</th><th>处理方式</th></tr>
+      <tr><td>TOF 单像素无效</td><td>信号板 (<code>dis_status=255</code>)</td><td>该像素不参与最小距离计算</td></tr>
+      <tr><td>TOF 信号强度过低</td><td>信号板 (<code>signal_strength &lt; thr=2</code>)</td><td>视为无效数据忽略</td></tr>
+      <tr><td>UWB 目标丢失</td><td>BU04 (<code>status=3</code>)</td><td>信号板发停车帧</td></tr>
+      <tr><td>UWB 太近</td><td>BU04 (<code>status=0</code>)</td><td>电机驱动板 P 控制器输出 0</td></tr>
+    </table></div>
+
+    <h3>6.3 电气异常</h3>
+    <div class="table-wrap"><table>
+      <tr><th>异常场景</th><th>检测方</th><th>处理方式</th></tr>
+      <tr><td>电机堵转</td><td>电机驱动板 (FOC errCode)</td><td>禁用电机 + 1 声蜂鸣</td></tr>
+      <tr><td>霍尔传感器异常</td><td>电机驱动板 (FOC errCode)</td><td>同上</td></tr>
+      <tr><td>主板过温</td><td>电机驱动板 (ADC 温度采集)</td><td>≥65°C 自动关机</td></tr>
+      <tr><td>电池低压</td><td>电机驱动板 (ADC 电压采集)</td><td>两级警告 → 最终关机</td></tr>
+      <tr><td>CAN 总线错误</td><td>信号板 (AutoBusOff)</td><td>硬件自动恢复</td></tr>
+    </table></div>
+
+    <h3>6.4 异常恢复策略</h3>
+    <div class="grid2">
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--green)"></span> 通信恢复</div>
+        <p>任一超时后，一旦收到有效帧，<strong>立即恢复正常运行</strong>（无需重启）。</p>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--accent)"></span> 避障恢复</div>
+        <p>障碍物移除后，下一个 TOF 轮询周期 (<strong>50ms</strong>) 自动回到正常跟随。</p>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--red)"></span> 电气恢复</div>
+        <p>FOC 错误需用户<strong>重启</strong>；温度/电压关机需充电或冷却后重新开机。</p>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--yellow)"></span> CAN 恢复</div>
+        <p><code>AutoBusOff</code> 硬件自动离线恢复，无需软件干预。</p>
+      </div>
+    </div>
+  </section>
+
+  <footer style="text-align:center; color:var(--text2); font-size:12px; padding-top:32px; border-top:1px solid var(--border);">
+    UWB跟随+避障小车 · 系统技术文档 v1.0 · 四板系统: BU03(标签) + BU04(锚点) + 信号板(C8T6) + 电机驱动板(F103RC)
+  </footer>
+</div>
+
+<script>
+  // Sidebar active highlight on scroll
+  const links = document.querySelectorAll('.sidebar a');
+  const sections = [];
+  links.forEach(a => {
+    const id = a.getAttribute('href');
+    if (id && id.startsWith('#')) {
+      const el = document.querySelector(id);
+      if (el) sections.push({ el, a });
+    }
+  });
+  window.addEventListener('scroll', () => {
+    let cur = sections[0];
+    for (const s of sections) {
+      if (s.el.getBoundingClientRect().top <= 120) cur = s;
+    }
+    links.forEach(a => a.classList.remove('active'));
+    if (cur) cur.a.classList.add('active');
+  });
+</script>
+</body>
+</html>

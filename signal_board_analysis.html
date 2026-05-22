@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>信号板深度分析报告</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface2: #334155;
+    --border: #475569;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --accent: #38bdf8;
+    --accent2: #818cf8;
+    --green: #4ade80;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --orange: #fb923c;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.7; scroll-behavior: smooth;
+  }
+  .sidebar {
+    position: fixed; left: 0; top: 0; bottom: 0; width: 240px;
+    background: var(--surface); border-right: 1px solid var(--border);
+    padding: 24px 0; overflow-y: auto; z-index: 100; transition: transform .3s;
+  }
+  .sidebar-title { font-size: 13px; font-weight: 700; color: var(--accent); padding: 0 16px; margin-bottom: 16px; letter-spacing: 1px; }
+  .sidebar a {
+    display: block; padding: 7px 16px; font-size: 12px; color: var(--text2);
+    text-decoration: none; border-left: 3px solid transparent; transition: all .2s;
+  }
+  .sidebar a:hover, .sidebar a.active { color: var(--accent); background: rgba(56,189,248,.06); border-left-color: var(--accent); }
+  .sidebar a.sub { padding-left: 28px; }
+  .main { margin-left: 240px; padding: 36px 44px 80px; max-width: 920px; }
+  .hero {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    border: 1px solid var(--border); border-radius: 14px;
+    padding: 40px 36px; margin-bottom: 40px; text-align: center;
+  }
+  .hero h1 { font-size: 26px; color: #fff; margin-bottom: 6px; }
+  .hero p { color: var(--text2); font-size: 14px; }
+  .hero .badge { display: inline-block; margin-top: 12px; padding: 3px 12px; background: rgba(248,113,113,.15); color: var(--red); border-radius: 16px; font-size: 11px; font-weight: 600; }
+  section { margin-bottom: 40px; }
+  h2 { font-size: 20px; color: #fff; margin-bottom: 18px; padding-bottom: 8px; border-bottom: 2px solid var(--accent); display: flex; align-items: center; gap: 8px; }
+  h3 { font-size: 15px; color: var(--accent2); margin: 20px 0 10px; }
+  h3::before { content: ''; display: inline-block; width: 4px; height: 16px; background: var(--accent2); border-radius: 2px; margin-right: 8px; vertical-align: middle; }
+  p { font-size: 13px; margin-bottom: 10px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px; margin-bottom: 14px; transition: border-color .2s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card-title { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .risk-high { border-left: 4px solid var(--red); }
+  .risk-mid { border-left: 4px solid var(--yellow); }
+  .risk-low { border-left: 4px solid var(--green); }
+  .risk-ok { border-left: 4px solid var(--accent); }
+  .table-wrap { overflow-x: auto; margin-bottom: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; padding: 8px 12px; background: var(--surface2); color: var(--accent); font-weight: 600; border-bottom: 2px solid var(--border); white-space: nowrap; }
+  td { padding: 8px 12px; border-bottom: 1px solid rgba(71,85,105,.4); }
+  tr:hover td { background: rgba(56,189,248,.04); }
+  pre {
+    background: #0c1222; border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 18px; overflow-x: auto; font-size: 12px; line-height: 1.6;
+    margin-bottom: 14px; color: var(--green);
+    font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  }
+  code { background: var(--surface2); padding: 2px 5px; border-radius: 3px; font-size: 11px; color: var(--yellow); font-family: 'Cascadia Code', 'Fira Code', monospace; }
+  pre code { background: none; padding: 0; color: inherit; }
+  .flow { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 14px; overflow-x: auto; }
+  .flow pre { background: none; border: none; padding: 0; margin: 0; color: var(--text2); }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+  .tag-red { background: rgba(248,113,113,.15); color: var(--red); }
+  .tag-yellow { background: rgba(251,191,36,.15); color: var(--yellow); }
+  .tag-green { background: rgba(74,222,128,.15); color: var(--green); }
+  .tag-blue { background: rgba(56,189,248,.15); color: var(--accent); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .menu-btn { display: none; position: fixed; top: 10px; left: 10px; z-index: 200; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 16px; }
+  @media (max-width: 768px) { .sidebar { transform: translateX(-100%); } .sidebar.open { transform: translateX(0); } .main { margin-left: 0; padding: 20px 14px 60px; } .menu-btn { display: block; } .grid2 { grid-template-columns: 1fr; } }
+  ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: var(--bg); } ::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
+</style>
+</head>
+<body>
+<button class="menu-btn" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰</button>
+
+<nav class="sidebar">
+  <div class="sidebar-title">📑 目录</div>
+  <a href="#risks">一、执行逻辑风险</a>
+  <a href="#r1" class="sub">UART3阻塞</a>
+  <a href="#r2" class="sub">CAN ISR浮点</a>
+  <a href="#r3" class="sub">volatile非原子</a>
+  <a href="#r4" class="sub">围堵状态机</a>
+  <a href="#r5" class="sub">TOF帧丢失</a>
+  <a href="#r6" class="sub">其他</a>
+  <a href="#dataflow">二、数据流分析</a>
+  <a href="#priority">三、决策优先级</a>
+  <a href="#arch">四、架构合理性</a>
+  <a href="#improve">五、改进建议</a>
+  <a href="#conclusion">六、结论</a>
+</nav>
+
+<div class="main">
+  <div class="hero">
+    <h1>信号板深度分析报告</h1>
+    <p>风险评估 · 数据流 · 架构合理性 · 改进建议</p>
+    <span class="badge">signal_board_c8t6 · STM32F103C8T6</span>
+  </div>
+
+  <!-- ===== 一、风险 ===== -->
+  <section id="risks">
+    <h2>⚠️ 一、执行逻辑风险分析</h2>
+
+    <div class="card risk-high" id="r1">
+      <div class="card-title">🔴 风险 1：UART3 阻塞发送导致主循环卡顿</div>
+      <pre><code>static inline void uart3_send_str(const char *s)
+{
+    HAL_UART_Transmit(&huart3, (uint8_t *)s, (uint16_t)strlen(s), 50);
+}</code></pre>
+      <p><strong>问题：</strong> <code>HAL_UART_Transmit</code> 阻塞式发送，timeout=50ms。正常 25B @115200 = ~2.2ms。但 UART3 硬件异常时阻塞整整 50ms，20Hz 周期被吃满。</p>
+      <p><strong>调试输出更严重：</strong> <code>uart1_send_str(dbg)</code> 约 120B = ~10ms 阻塞。</p>
+      <p><strong>解决方案：</strong> 改用 DMA 或中断发送，不阻塞主循环。</p>
+    </div>
+
+    <div class="card risk-mid" id="r2">
+      <div class="card-title">🟡 风险 2：CAN ISR 中做浮点运算</div>
+      <pre><code>s_pixels[idx].dis = temp / 1000.0f;  // 在CAN中断回调中</code></pre>
+      <p>STM32F103 无硬件 FPU，软件浮点除法约 3-5μs。CAN 1Mbps 帧间隔 ~100μs，占 5%。64帧收齐时区域计算 ~50μs。</p>
+      <p><strong>结论：</strong> 不会卡死，但消耗中断时间。可将浮点转换延迟到主循环。</p>
+    </div>
+
+    <div class="card risk-mid" id="r3">
+      <div class="card-title">🟡 风险 3：volatile 变量组非原子访问</div>
+      <pre><code>static volatile int flw_dist = 0;
+static volatile int flw_angle_x10 = 0;  // ISR写, 主循环读</code></pre>
+      <p>单变量 32 位对齐读写原子。<strong>但多变量不是！</strong> 可能读到新帧的 <code>flw_dist</code> + 旧帧的 <code>flw_angle_x10</code>。</p>
+      <p><strong>实际影响：</strong> 概率极低，但极端情况导致一帧数据错配 → 轻微抖动。</p>
+      <p><strong>解决方案：</strong> 主循环关中断拷贝一组数据后清标志。</p>
+    </div>
+
+    <div class="card risk-mid" id="r4">
+      <div class="card-title">🟡 风险 4：围堵状态机逻辑缺陷</div>
+      <pre><code>if (r_danger && m_danger && l_danger) {
+    if (s_turn_flag == 0) {        // 只有第一次进 CCW
+        r.action = AVOID_ROTATE_CCW;
+        s_turn_flag = 1;
+    } else {                        // 之后永远进 CW
+        r.action = AVOID_ROTATE_CW;
+        s_turn_flag = 2;
+    }
+}</code></pre>
+      <p><strong>结果：</strong> 车只 CCW 转一帧(50ms)，然后永远 CW 转。若 CW 方向也被堵，车在墙角持续撞。</p>
+      <p><strong>解决方案：</strong> flag 在 0/1/2 间循环，或用时间窗口切换方向。</p>
+    </div>
+
+    <div class="card risk-mid" id="r5">
+      <div class="card-title">🟡 风险 5：TOFSense 64帧不完整时永远等待</div>
+      <pre><code>if (s_rx_mask == 0xFFFFFFFFFFFFFFFFULL) {  // 必须64位全1
+    // 才更新避障数据
+}</code></pre>
+      <p>丢一个 CAN 帧 → <code>s_rx_mask</code> 永远凑不齐 → 避障数据冻结。若冻结时正在避障 → 车持续执行避障动作。</p>
+      <p><strong>解决方案：</strong> 200ms 未收齐 → 清 <code>s_rx_mask</code> → 退化为 AVOID_NONE。</p>
+    </div>
+
+    <div class="card risk-ok" id="r6">
+      <div class="card-title">✅ 无风险项</div>
+      <div class="table-wrap"><table>
+        <tr><th>项目</th><th>结论</th></tr>
+        <tr><td><code>__WFI()</code> 休眠</td><td>SysTick 1ms 保证唤醒，不会卡死</td></tr>
+        <tr><td><code>snprintf</code> 栈空间</td><td>~300B，20KB RAM 足够</td></tr>
+        <tr><td><code>bt_armed</code> 无超时</td><td>有 UWB 超时兜底，实际安全</td></tr>
+      </table></div>
+    </div>
+
+    <h3>风险汇总表</h3>
+    <div class="table-wrap"><table>
+      <tr><th>等级</th><th>问题</th><th>卡死？</th><th>误判？</th></tr>
+      <tr><td><span class="tag tag-red">高</span></td><td>UART3 阻塞 50ms timeout</td><td>否，降帧率</td><td>否</td></tr>
+      <tr><td><span class="tag tag-yellow">中</span></td><td>volatile 非原子读取</td><td>否</td><td>极低概率错配</td></tr>
+      <tr><td><span class="tag tag-yellow">中</span></td><td>s_turn_flag 围堵状态机</td><td>否</td><td><strong>是：持续单向转</strong></td></tr>
+      <tr><td><span class="tag tag-yellow">中</span></td><td>TOF 64帧丢失无超时</td><td>否</td><td>避障冻结</td></tr>
+      <tr><td><span class="tag tag-green">低</span></td><td>CAN ISR 浮点运算</td><td>否</td><td>否</td></tr>
+      <tr><td><span class="tag tag-green">低</span></td><td>bt_armed 无超时</td><td>否</td><td>否</td></tr>
+    </table></div>
+  </section>
+
+  <!-- ===== 二、数据流 ===== -->
+  <section id="dataflow">
+    <h2>📡 二、数据流分析</h2>
+
+    <div class="flow">
+      <pre><code>①BU03按键 ──BLE 115200──→ 信号板USART1 ──→ bt_armed (0/1)
+                                                ↓
+②BU04测距 ──UART 115200──→ 信号板USART2 ──→ flw_dist/angle/status
+                                                ↓
+③TOFSense ──CAN 1Mbps───→ 信号板CAN1 ──→ zone(L/M/R距离)
+                                                ↓
+                                         ┌──────────────┐
+                                         │  融合决策引擎  │
+                                         │  (20Hz 周期)  │
+                                         └──────┬───────┘
+                                                ↓
+④信号板USART3 ──UART 115200──→ 电机驱动板(DMA) ──→ P控 ──→ PWM
+
+⑤调试流: 信号板USART1 ──→ HC-04 BLE ──→ 手机 (2Hz)</code></pre>
+    </div>
+
+    <div class="table-wrap"><table>
+      <tr><th>#</th><th>数据流</th><th>方向</th><th>速率</th><th>帧大小</th><th>频率</th><th>延迟</th></tr>
+      <tr><td>①</td><td>BU03→信号板</td><td>单向</td><td>115200</td><td>6B</td><td>事件触发</td><td>&lt;20ms</td></tr>
+      <tr><td>②</td><td>BU04→信号板</td><td>单向</td><td>115200</td><td>~30B</td><td>10-20Hz</td><td>~2.6ms</td></tr>
+      <tr><td>③</td><td>TOFSense→信号板</td><td>单向</td><td>1Mbps CAN</td><td>8B×64</td><td>~10Hz/轮</td><td>~6.4ms</td></tr>
+      <tr><td>④</td><td>信号板→电机板</td><td>单向</td><td>115200</td><td>~25B</td><td>20Hz</td><td>~2.2ms</td></tr>
+      <tr><td>⑤</td><td>信号板→BLE调试</td><td>单向</td><td>115200</td><td>~120B</td><td>2Hz</td><td>~10ms</td></tr>
+    </table></div>
+
+    <h3>速率匹配分析</h3>
+    <div class="table-wrap"><table>
+      <tr><th>源</th><th>产出</th><th>消费</th><th>匹配度</th></tr>
+      <tr><td>BU04 UWB</td><td>10-20Hz</td><td>20Hz读取</td><td>⚠️ 50%周期读旧帧</td></tr>
+      <tr><td>TOFSense</td><td>~10Hz/轮</td><td>20Hz轮询</td><td>⚠️ 50%周期用旧TOF</td></tr>
+      <tr><td>信号板输出</td><td>20Hz</td><td>电机板500Hz</td><td>✅ 滤波平滑</td></tr>
+    </table></div>
+    <p><strong>评价：</strong> 不是问题。50ms 内车移动 &lt;5cm，旧数据仍然有效。</p>
+  </section>
+
+  <!-- ===== 三、优先级 ===== -->
+  <section id="priority">
+    <h2>🎯 三、决策优先级</h2>
+    <div class="flow">
+      <pre><code>[1] bt_armed == 0        → 直接停车（最高，硬门控）
+         ↓ (armed)
+[2] ROTATE / SHIFT       → 完全覆盖UWB，直接避障
+         ↓ (无紧急避障)
+[3] UWB在线 + SLOW_DOWN  → 保持UWB角度，限速
+         ↓ (无减速)
+[4] UWB在线 + NONE       → 正常跟随（角度取反×5）
+         ↓ (UWB离线)
+[5] UWB超时(&gt;500ms)     → 停车</code></pre>
+    </div>
+    <p><strong>评价：</strong> ✅ 合理。安全性逐级递增：人为停止 &gt; 避障 &gt; 跟随 &gt; 超时保护。</p>
+  </section>
+
+  <!-- ===== 四、架构 ===== -->
+  <section id="arch">
+    <h2>🏗️ 四、架构合理性评估</h2>
+
+    <h3>合理之处 ✅</h3>
+    <div class="table-wrap"><table>
+      <tr><th>方面</th><th>评价</th></tr>
+      <tr><td><strong>职责分离</strong></td><td>信号板决策、电机板执行、BU04 测量。各板单一职责。</td></tr>
+      <tr><td><strong>安全分层</strong></td><td>信号板门控 + 电机板超时双重保护，任一链路断都停车。</td></tr>
+      <tr><td><strong>通信选择</strong></td><td>UWB/BLE 用 UART（简单），TOF 用 CAN（高速多设备）。</td></tr>
+      <tr><td><strong>避障覆盖跟随</strong></td><td>避障优先级 &gt; 跟随，不因跟随需求撞障碍。</td></tr>
+      <tr><td><strong>协议统一</strong></td><td>统一 <code>$FLW</code> 帧格式，简化电机板实现。</td></tr>
+    </table></div>
+
+    <h3>架构问题 ⚠️</h3>
+
+    <div class="card risk-mid">
+      <div class="card-title">问题 1：信号板是单点故障</div>
+      <pre><code>BU04 ─┐
+BLE  ─┼─→ [信号板] ─→ 电机板
+TOF  ─┘</code></pre>
+      <p>信号板死机 → 电机板 1000ms 后超时停车。安全有保障，可用性为零。</p>
+      <p><strong>评价：</strong> 对此类小车可接受，冗余成本太高。</p>
+    </div>
+
+    <div class="card risk-mid">
+      <div class="card-title">问题 2：单向通信无反馈</div>
+      <p>电机板无法告知信号板当前转速、堵转状态、电池电量。信号板盲发指令。</p>
+      <p><strong>影响：</strong> 堵转时信号板不知道，继续发同一避障指令。</p>
+      <p><strong>评价：</strong> 当前功能够用。需速度闭环时再加反馈。</p>
+    </div>
+
+    <div class="card risk-low">
+      <div class="card-title">问题 3：角度增益链分散</div>
+      <pre><code>BU04 angle_x10 → 信号板(取反×5) → 电机板(÷10 × KP=4)
+等效增益: angle_raw × (-2)</code></pre>
+      <p>两端都做增益，调参难以直观理解。建议集中到一处。</p>
+    </div>
+  </section>
+
+  <!-- ===== 五、改进 ===== -->
+  <section id="improve">
+    <h2>🔧 五、改进建议</h2>
+    <div class="table-wrap"><table>
+      <tr><th>优先级</th><th>改进项</th><th>原因</th><th>改动量</th></tr>
+      <tr><td><span class="tag tag-red">高</span></td><td>UART3 改 DMA/IT 发送</td><td>消除阻塞，保证 20Hz 稳定</td><td>中</td></tr>
+      <tr><td><span class="tag tag-red">高</span></td><td>TOF 超时重置 s_rx_mask</td><td>防避障冻结</td><td>小(5行)</td></tr>
+      <tr><td><span class="tag tag-yellow">中</span></td><td>volatile 组变量加临界区</td><td>防数据错配</td><td>小</td></tr>
+      <tr><td><span class="tag tag-yellow">中</span></td><td>修复 s_turn_flag 逻辑</td><td>围堵时正确交替转向</td><td>小</td></tr>
+      <tr><td><span class="tag tag-green">低</span></td><td>增益集中到电机板</td><td>便于调参</td><td>中(需联调)</td></tr>
+      <tr><td><span class="tag tag-green">低</span></td><td>电机板→信号板反馈通道</td><td>未来扩展</td><td>大</td></tr>
+    </table></div>
+  </section>
+
+  <!-- ===== 六、结论 ===== -->
+  <section id="conclusion">
+    <h2>📋 六、结论</h2>
+    <div class="grid2">
+      <div class="card risk-ok">
+        <div class="card-title">✅ 架构层面</div>
+        <p>整体合理，四板分工清晰，安全链完整（门控→避障→超时三重保护）。适合当前功能复杂度。</p>
+      </div>
+      <div class="card risk-high">
+        <div class="card-title">⚠️ 执行层面</div>
+        <p>主要薄弱点在阻塞 UART、TOF 无超时、围堵状态机。优先修复这三项可显著提升鲁棒性。</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px; text-align:center;">
+      <p style="margin:0; font-size:13px; color:var(--text2);">
+        <strong>最需优先修复：</strong>
+        <span class="tag tag-red" style="margin:0 4px;">①UART3→DMA</span>
+        <span class="tag tag-red" style="margin:0 4px;">②TOF超时重置</span>
+        <span class="tag tag-yellow" style="margin:0 4px;">③围堵状态机</span>
+      </p>
+    </div>
+  </section>
+
+  <footer style="text-align:center; color:var(--text2); font-size:11px; padding-top:24px; border-top:1px solid var(--border);">
+    信号板深度分析报告 v1.0 · signal_board_c8t6 · STM32F103C8T6
+  </footer>
+</div>
+
+<script>
+const links = document.querySelectorAll('.sidebar a');
+const sects = [];
+links.forEach(a => { const el = document.querySelector(a.getAttribute('href')); if (el) sects.push({el,a}); });
+window.addEventListener('scroll', () => {
+  let cur = sects[0];
+  for (const s of sects) if (s.el.getBoundingClientRect().top <= 100) cur = s;
+  links.forEach(a => a.classList.remove('active'));
+  if (cur) cur.a.classList.add('active');
+});
+</script>
+</body>
+</html>
